@@ -27,6 +27,7 @@ class _RegistroClienteState extends State<RegistroCliente> {
   // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
     await _firestore.collection("cliente").doc(userCredential.user!.uid).set({
+      "tipoUsuario": "cliente",
       "clienteId": userCredential.user!.uid,
       "nombre": _nombreController.text.trim(),
       "telefono": _telefonoController.text.trim(),

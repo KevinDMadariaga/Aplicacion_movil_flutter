@@ -8,7 +8,7 @@ class CustomButton extends StatelessWidget {
   final double? fontSize;
   final Widget? icon; // Ícono como widget opcional
 
-  CustomButton({
+  const CustomButton({super.key, 
     required this.text,
     required this.onPressed,
     this.width,
@@ -26,11 +26,13 @@ class CustomButton extends StatelessWidget {
     final buttonHeight = height ?? screenHeight * 0.07;
     final textFontSize = fontSize ?? buttonHeight * 0.4;
 
+    // ignore: sized_box_for_whitespace
     return Container(
       width: buttonWidth,
       height: buttonHeight,
       child: ElevatedButton(
         onPressed: onPressed,
+        // ignore: sort_child_properties_last
         child: Row(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,

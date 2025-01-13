@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:taxi_app/screens/home.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:taxi_app/screens/login.dart';
 
 
 void main() async {
@@ -17,7 +17,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Taxi Ya',
-      home: home(),
+      home: const LoadingScreen(),
     );
   }
 }

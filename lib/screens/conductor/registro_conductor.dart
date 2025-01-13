@@ -27,6 +27,7 @@ class _RegistroConductorState extends State<RegistroConductor> {
   // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
     await _firestore.collection("conductor").doc(userCredential.user!.uid).set({
+      "tipoUsuario": "conductor",
       "conductorId": userCredential.user!.uid,
       "nombre": _nombreController.text.trim(),
       "telefono": _telefonoController.text.trim(),
@@ -79,13 +80,15 @@ class _RegistroConductorState extends State<RegistroConductor> {
   String? _validateCorreo(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su correo";
     if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value))
+      // ignore: curly_braces_in_flow_control_structures
       return "Correo inválido";
     return null;
   }
 
   String? _validateTelefono(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su número de teléfono";
-    if (!RegExp(r'^\d{10}\$').hasMatch(value))
+    if (!RegExp(r'^\d{10}$').hasMatch(value))
+      // ignore: curly_braces_in_flow_control_structures
       return "Número inválido (10 dígitos)";
     return null;
   }
