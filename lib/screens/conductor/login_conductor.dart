@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
-import 'package:taxi_app/screens/cliente/registro_cliente.dart';
+import 'package:taxi_app/screens/conductor/registro_conductor.dart';
 
-class LoginCliente extends StatefulWidget {
-  const LoginCliente({super.key});
+class LoginConductor extends StatefulWidget {
+  const LoginConductor({super.key});
 
   @override
-  State<LoginCliente> createState() => _LoginClienteState();
+  State<LoginConductor> createState() => _LoginConductorState();
 }
 
-class _LoginClienteState extends State<LoginCliente> {
+class _LoginConductorState extends State<LoginConductor> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -43,7 +43,7 @@ class _LoginClienteState extends State<LoginCliente> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Iniciar Sesión Cliente"),
+        title: const Text("Iniciar Sesión Conductor"),
         backgroundColor: Colores.amarillo,
       ),
       body: SingleChildScrollView(
@@ -98,9 +98,10 @@ class _LoginClienteState extends State<LoginCliente> {
                 CustomButton(
                   text: 'Iniciar Sesión',
                   onPressed: _iniciarSesion,
-                  width: 202, // Ancho del botón
-                  height: 50, // Alto del botón
-                  fontSize: 16, // Tamaño de fuente del texto
+                  width:
+                      MediaQuery.of(context).size.width * 0.6, // Ancho dinámico
+                  height: 50, // Alto fijo
+                  fontSize: 16,
                 ),
                 TextButton(
                   onPressed: () {
@@ -108,7 +109,7 @@ class _LoginClienteState extends State<LoginCliente> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (context) => const RegistroCliente()),
+                          builder: (context) => const RegistroConductor()),
                     );
                   },
                   child: const Text(

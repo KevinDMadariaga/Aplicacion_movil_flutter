@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/login_cliente.dart';
+import 'package:taxi_app/screens/conductor/login_conductor.dart';
 
 // ignore: camel_case_types
 class home extends StatelessWidget {
@@ -87,7 +88,7 @@ class home extends StatelessWidget {
                       context,
                       MaterialPageRoute(
                           builder: (context) =>
-                              LoginCliente()), // Cambia PaginaDestino por el nombre de tu widget
+                              LoginConductor()), // Cambia PaginaDestino por el nombre de tu widget
                     );
                   },
                   style: ElevatedButton.styleFrom(

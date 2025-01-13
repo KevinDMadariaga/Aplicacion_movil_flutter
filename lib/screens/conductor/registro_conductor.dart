@@ -4,14 +4,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 
-class RegistroCliente extends StatefulWidget {
-  const RegistroCliente({super.key});
+class RegistroConductor extends StatefulWidget {
+  const RegistroConductor({super.key});
 
   @override
-  State<RegistroCliente> createState() => _RegistroClienteState();
+  State<RegistroConductor> createState() => _RegistroConductorState();
 }
 
-class _RegistroClienteState extends State<RegistroCliente> {
+class _RegistroConductorState extends State<RegistroConductor> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -26,8 +26,8 @@ class _RegistroClienteState extends State<RegistroCliente> {
 
   // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
-    await _firestore.collection("cliente").doc(userCredential.user!.uid).set({
-      "clienteId": userCredential.user!.uid,
+    await _firestore.collection("conductor").doc(userCredential.user!.uid).set({
+      "conductorId": userCredential.user!.uid,
       "nombre": _nombreController.text.trim(),
       "telefono": _telefonoController.text.trim(),
       "correo": _emailController.text.trim(),
@@ -36,7 +36,7 @@ class _RegistroClienteState extends State<RegistroCliente> {
   }
 
   // Función para registrar un nuevo usuario
-  Future<void> _registrarCliente() async {
+  Future<void> _registrarConductor() async {
     if (_formKey.currentState!.validate()) {
       try {
         UserCredential userCredential =
@@ -79,15 +79,13 @@ class _RegistroClienteState extends State<RegistroCliente> {
   String? _validateCorreo(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su correo";
     if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value))
-      // ignore: curly_braces_in_flow_control_structures
       return "Correo inválido";
     return null;
   }
 
   String? _validateTelefono(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su número de teléfono";
-    if (!RegExp(r'^\d{10}$').hasMatch(value))
-      // ignore: curly_braces_in_flow_control_structures
+    if (!RegExp(r'^\d{10}\$').hasMatch(value))
       return "Número inválido (10 dígitos)";
     return null;
   }
@@ -102,7 +100,7 @@ class _RegistroClienteState extends State<RegistroCliente> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Registro de Cliente"),
+        title: const Text("Registro de Conductor"),
         backgroundColor: Colores.amarillo,
       ),
       body: Padding(
@@ -110,7 +108,6 @@ class _RegistroClienteState extends State<RegistroCliente> {
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            // Permite desplazar el contenido si es necesario
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -188,7 +185,6 @@ class _RegistroClienteState extends State<RegistroCliente> {
                   ),
                   const SizedBox(height: 24.0),
                   // Campo de Confirmar Contraseña
-                  // Campo de Confirmar Contraseña
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: true,
@@ -210,7 +206,7 @@ class _RegistroClienteState extends State<RegistroCliente> {
                   const SizedBox(height: 24.0),
                   CustomButton(
                     text: 'Registrar',
-                    onPressed: _registrarCliente,
+                    onPressed: _registrarConductor,
                     width: 100, // Ancho del botón
                     height: 50, // Alto del botón
                     fontSize: 16, // Tamaño de fuente del texto
