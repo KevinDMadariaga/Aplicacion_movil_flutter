@@ -57,6 +57,7 @@ class _MapaConductorState extends State<MapaConductor> {
       }
 
       Position position = await Geolocator.getCurrentPosition(
+        // ignore: deprecated_member_use
         desiredAccuracy: LocationAccuracy.high,
       );
 
@@ -174,7 +175,6 @@ class _MapaConductorState extends State<MapaConductor> {
     }
   }
 
-  /// 📌 Método para obtener la dirección en texto a partir de coordenadas
   Future<String> _obtenerDireccion(GeoPoint ubicacion) async {
     try {
       List<Placemark> placemarks = await placemarkFromCoordinates(
@@ -182,7 +182,17 @@ class _MapaConductorState extends State<MapaConductor> {
 
       if (placemarks.isNotEmpty) {
         final Placemark place = placemarks.first;
-        return "${place.street}, ${place.locality}, ${place.administrativeArea}";
+
+        // Construir una dirección más detallada
+        String address = "";
+        if (place.street != null) address += place.street!;
+        if (place.subLocality != null) address += ", ${place.subLocality}";
+        if (place.locality != null) address += ", ${place.locality}";
+        if (place.administrativeArea != null)
+          address += ", ${place.administrativeArea}";
+        if (place.country != null) address += ", ${place.country}";
+
+        return address.isNotEmpty ? address : "Dirección desconocida";
       } else {
         return "Dirección desconocida";
       }
@@ -212,6 +222,18 @@ class _MapaConductorState extends State<MapaConductor> {
                 ubicacionDestino: doc['ubicacion_seleccionada'],
               ),
             ),
+          );
+        }
+        // ❌ Si la solicitud es cancelada, dejar de mostrarla
+        if (estado == 'cancelada') {
+          setState(() {
+            _solicitudStream = null;
+            _solicitudId = null;
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('La solicitud fue cancelada por el cliente.')),
           );
         }
       }
@@ -331,17 +353,17 @@ class _MapaConductorState extends State<MapaConductor> {
                 return FutureBuilder<List<String>>(
                   future: Future.wait([
                     _obtenerNombreCliente(
-                        clienteId), // 🔹 Obtener el nombre del cliente
+                        clienteId), // Obtener el nombre del cliente
                     _obtenerDireccion(
-                        ubicacionInicial), // 🔹 Convertir ubicación inicial a texto
+                        ubicacionInicial), // Convertir ubicación inicial a texto
                     _obtenerDireccion(
-                        ubicacionDestino) // 🔹 Convertir destino a texto
+                        ubicacionDestino) // Convertir destino a texto
                   ]),
                   builder: (context, AsyncSnapshot<List<String>> snapshot) {
                     if (!snapshot.hasData) {
                       return const Center(
                           child:
-                              CircularProgressIndicator()); // 🔄 Indicador de carga
+                              CircularProgressIndicator()); // Indicador de carga
                     }
 
                     String nombreCliente = snapshot.data![0];

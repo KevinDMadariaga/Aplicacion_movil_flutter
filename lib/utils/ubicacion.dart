@@ -33,6 +33,7 @@ class GuardarUbicacion {
 
       // Obtener ubicación actual
       final posicion = await Geolocator.getCurrentPosition(
+        // ignore: deprecated_member_use
         desiredAccuracy: LocationAccuracy.high,
       );
 
@@ -63,7 +64,7 @@ class GuardarUbicacion {
       debugPrint("Ubicación guardada correctamente en la colección $coleccion.");
     } catch (e) {
       debugPrint("Error al guardar ubicación: $e");
-      throw e;
+      rethrow;
     }
   }
 }

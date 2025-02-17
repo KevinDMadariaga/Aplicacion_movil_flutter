@@ -4,9 +4,9 @@ class ClienteConductor extends StatelessWidget {
   final String ubicacionSeleccionada;
 
   const ClienteConductor({
-    Key? key,
+    super.key,
     required this.ubicacionSeleccionada,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
