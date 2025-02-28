@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -23,18 +24,26 @@ class _MapaConductorState extends State<MapaConductor> {
   LatLng? _currentPosition;
   String? _solicitudId;
   Stream<DocumentSnapshot>? _solicitudStream;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _conductor = FirebaseAuth.instance.currentUser;
     _configurarNotificaciones();
+    _iniciarSeguimientoUbicacion(); // Inicia el seguimiento de ubicación en tiempo real
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _centrarUbicacionActual();
+  }
+
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _centrarUbicacionActual() async {
@@ -57,7 +66,6 @@ class _MapaConductorState extends State<MapaConductor> {
       }
 
       Position position = await Geolocator.getCurrentPosition(
-        // ignore: deprecated_member_use
         desiredAccuracy: LocationAccuracy.high,
       );
 
@@ -74,6 +82,56 @@ class _MapaConductorState extends State<MapaConductor> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al obtener ubicación: $e')),
+        );
+      }
+    }
+  }
+
+  /// Método para iniciar el seguimiento en tiempo real de la ubicación del conductor,
+  /// actualizando la posición en Firestore y centrando el mapa.
+  void _iniciarSeguimientoUbicacion() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw "Los servicios de ubicación están deshabilitados.";
+      }
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          throw "Permiso de ubicación denegado.";
+        }
+      }
+
+      _positionStreamSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10, // Actualiza cada 10 metros de cambio
+        ),
+      ).listen((Position position) {
+        if (mounted) {
+          setState(() {
+            _currentPosition = LatLng(position.latitude, position.longitude);
+          });
+          // Actualiza la ubicación del conductor en Firestore
+          FirebaseFirestore.instance
+              .collection('conductor')
+              .doc(_conductor!.uid)
+              .update({
+            'ubicacion': GeoPoint(position.latitude, position.longitude)
+          });
+          // Centra el mapa en la nueva ubicación
+          _mapController
+              .animateCamera(CameraUpdate.newLatLng(_currentPosition!));
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al iniciar seguimiento: $e')),
         );
       }
     }
@@ -137,7 +195,7 @@ class _MapaConductorState extends State<MapaConductor> {
     }
   }
 
-  /// 📢 Método para mostrar una notificación local en la barra de estado
+  /// Método para mostrar una notificación local en la barra de estado
   void _mostrarNotificacionLocal(String titulo, String mensaje) async {
     // Aquí debes usar un paquete de notificaciones locales como flutter_local_notifications
     print("🔔 Notificación Local: $titulo - $mensaje");
@@ -159,8 +217,7 @@ class _MapaConductorState extends State<MapaConductor> {
       if (clienteId.isEmpty) return 'Desconocido';
 
       DocumentSnapshot clienteDoc = await FirebaseFirestore.instance
-          .collection(
-              'cliente') // 📌 Asegúrate de que la colección sea correcta
+          .collection('cliente') // Asegúrate de que la colección sea correcta
           .doc(clienteId)
           .get();
 
@@ -211,7 +268,7 @@ class _MapaConductorState extends State<MapaConductor> {
       if (doc.exists) {
         String estado = doc['estado'] ?? '';
 
-        // 🚖 Si la solicitud es aceptada, navegar a la pantalla ConductorRecogida
+        // Si la solicitud es aceptada, navegar a la pantalla ConductorRecogida
         if (estado == 'aceptada') {
           Navigator.pushReplacement(
             context,
@@ -224,7 +281,7 @@ class _MapaConductorState extends State<MapaConductor> {
             ),
           );
         }
-        // ❌ Si la solicitud es cancelada, dejar de mostrarla
+        // Si la solicitud es cancelada, dejar de mostrarla
         if (estado == 'cancelada') {
           setState(() {
             _solicitudStream = null;
@@ -256,7 +313,7 @@ class _MapaConductorState extends State<MapaConductor> {
         const SnackBar(content: Text('Solicitud aceptada con éxito')),
       );
 
-      // ✅ Comenzar a escuchar cambios en la solicitud después de aceptarla
+      // Comenzar a escuchar cambios en la solicitud después de aceptarla
       _escucharCambiosSolicitud(_solicitudId!);
 
       if (mounted) {
@@ -347,23 +404,21 @@ class _MapaConductorState extends State<MapaConductor> {
 
                 var solicitud = snapshot.data!.data() as Map<String, dynamic>;
                 GeoPoint ubicacionInicial = solicitud['ubicacion_inicial'];
-                GeoPoint ubicacionDestino = solicitud['ubicacion_seleccionada'];
+                // Se utiliza directamente el campo "direccion_seleccionada" del documento
+                String direccionSeleccionada =
+                    solicitud['direccion_seleccionada'] ??
+                        "Dirección no disponible";
                 String clienteId = solicitud['clienteId'];
 
                 return FutureBuilder<List<String>>(
                   future: Future.wait([
-                    _obtenerNombreCliente(
-                        clienteId), // Obtener el nombre del cliente
-                    _obtenerDireccion(
-                        ubicacionInicial), // Convertir ubicación inicial a texto
-                    _obtenerDireccion(
-                        ubicacionDestino) // Convertir destino a texto
+                    _obtenerNombreCliente(clienteId),
+                    _obtenerDireccion(ubicacionInicial),
+                    Future.value(direccionSeleccionada),
                   ]),
                   builder: (context, AsyncSnapshot<List<String>> snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(
-                          child:
-                              CircularProgressIndicator()); // Indicador de carga
+                      return const Center(child: CircularProgressIndicator());
                     }
 
                     String nombreCliente = snapshot.data![0];
@@ -396,8 +451,6 @@ class _MapaConductorState extends State<MapaConductor> {
                               ),
                               const Divider(),
                               const SizedBox(height: 8),
-
-                              // Cliente con Icono
                               Row(
                                 children: [
                                   const Icon(Icons.person, color: Colors.blue),
@@ -413,8 +466,6 @@ class _MapaConductorState extends State<MapaConductor> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-
-                              // Ubicación Inicial con Icono
                               Row(
                                 children: [
                                   const Icon(Icons.location_on,
@@ -429,8 +480,6 @@ class _MapaConductorState extends State<MapaConductor> {
                                 ],
                               ),
                               const SizedBox(height: 8),
-
-                              // Destino con Icono
                               Row(
                                 children: [
                                   const Icon(Icons.flag, color: Colors.green),
@@ -444,8 +493,6 @@ class _MapaConductorState extends State<MapaConductor> {
                                 ],
                               ),
                               const SizedBox(height: 20),
-
-                              // Botones de acción
                               Row(
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,

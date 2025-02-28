@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
@@ -8,7 +7,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_place/google_place.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
-import 'package:http/http.dart' as http;
 import 'package:taxi_app/screens/cliente/recogida_cliente.dart';
 import 'package:taxi_app/services/api_google.dart';
 import 'package:taxi_app/screens/home.dart';
@@ -33,81 +31,89 @@ class _MapaClienteState extends State<MapaCliente> {
   bool _mostrarBotonTaxi = true;
   String? _solicitudId; // Guardar el ID de la solicitud creada
   bool _mostrarInformacionUbicacion = false;
-  bool _mostrandoBusquedaConductor = false;
-  bool _cargandoUbicacion = true; // Nuevo estado de carga
 
   @override
   void initState() {
     super.initState();
-    _centrarUbicacionInicial();
+    _obtenerYCentrarUbicacion();
   }
 
-  Future<void> _centrarUbicacionInicial() async {
-    setState(() {
-      _cargandoUbicacion = true;
-    });
-
+  Future<void> _obtenerYCentrarUbicacion() async {
     try {
-      bool servicioHabilitado = await Geolocator.isLocationServiceEnabled();
-      if (!servicioHabilitado)
+      // Verifica que los servicios de ubicación estén habilitados
+      if (!await Geolocator.isLocationServiceEnabled()) {
         throw "Los servicios de ubicación están deshabilitados.";
+      }
 
+      // Verifica y solicita permisos de ubicación
       LocationPermission permisos = await Geolocator.checkPermission();
       if (permisos == LocationPermission.denied) {
         permisos = await Geolocator.requestPermission();
-        if (permisos == LocationPermission.denied)
-          throw "Permisos de ubicación denegados.";
+      }
+      if (permisos == LocationPermission.deniedForever) {
+        throw "Permisos de ubicación denegados permanentemente.";
       }
 
-      if (permisos == LocationPermission.deniedForever)
-        throw "Los permisos de ubicación están denegados permanentemente.";
-
+      // Obtén la posición actual con alta precisión
       Position posicion = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high);
       _userLocation = LatLng(posicion.latitude, posicion.longitude);
-      _direccionInicial =
-          await _obtenerDireccionExacta(posicion.latitude, posicion.longitude);
 
-      if (mounted) {
-        setState(() {
-          _cargandoUbicacion = false;
-        });
-        _mapController
-            .animateCamera(CameraUpdate.newLatLngZoom(_userLocation!, 16.0));
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _cargandoUbicacion = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al obtener ubicación: $e')));
-      }
-    }
-  }
-
-  Future<String> _obtenerDireccionExacta(double lat, double lng) async {
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
-
+      // Obtiene la dirección exacta a partir de las coordenadas
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(posicion.latitude, posicion.longitude);
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks.first;
-        String address = "";
-
-        // Verificar si los componentes específicos de la dirección están disponibles
-        if (place.street != null) address += place.street!;
-        if (place.locality != null) address += ", ${place.locality}";
-        if (place.administrativeArea != null)
-          address += ", ${place.administrativeArea}";
-        if (place.country != null) address += ", ${place.country}";
-
-        // Retornar la dirección formateada
-        return address.isNotEmpty ? address : "Dirección desconocida";
+        String direccion = "";
+        if (place.street != null && place.street!.isNotEmpty) {
+          direccion += place.street!;
+        }
+        if (place.locality != null && place.locality!.isNotEmpty) {
+          direccion += ", ${place.locality}";
+        }
+        if (place.administrativeArea != null &&
+            place.administrativeArea!.isNotEmpty) {
+          direccion += ", ${place.administrativeArea}";
+        }
+        if (place.country != null && place.country!.isNotEmpty) {
+          direccion += ", ${place.country}";
+        }
+        _direccionInicial =
+            direccion.isNotEmpty ? direccion : "Dirección desconocida";
+      } else {
+        _direccionInicial = "Dirección desconocida";
       }
 
-      return "Dirección desconocida";
+      // Guarda la ubicación en Firestore para el usuario autenticado
+      final User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint("⚠️ Usuario no autenticado.");
+      } else {
+        await FirebaseFirestore.instance
+            .collection('cliente')
+            .doc(user.uid)
+            .set(
+          {
+            'ubicacion': GeoPoint(posicion.latitude, posicion.longitude),
+            'ultima_actualizacion': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        debugPrint("✅ Ubicación guardada en Firestore.");
+      }
+
+      // Centra el mapa en la ubicación obtenida
+      if (mounted) {
+        _mapController.animateCamera(
+          CameraUpdate.newLatLngZoom(_userLocation!, 16.0),
+        );
+      }
     } catch (e) {
-      return "Dirección desconocida";
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al obtener ubicación: $e')),
+        );
+      }
     }
   }
 
@@ -148,11 +154,10 @@ class _MapaClienteState extends State<MapaCliente> {
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setModalState) {
+            // Función para buscar ubicaciones
             void buscarUbicaciones(String input) async {
               if (input.isEmpty) {
-                setModalState(() {
-                  predictions = [];
-                });
+                setModalState(() => predictions = []);
                 return;
               }
 
@@ -165,84 +170,73 @@ class _MapaClienteState extends State<MapaCliente> {
                   components: [Component("country", "co")],
                 );
 
-                if (response != null && response.predictions != null) {
-                  setModalState(() {
-                    predictions = response.predictions!;
-                  });
-                }
+                setModalState(() => predictions = response?.predictions ?? []);
               } catch (e) {
                 debugPrint("Error al buscar ubicaciones: $e");
               }
             }
 
-            void seleccionarUbicacion(String placeId) async {
+            // Función para seleccionar una ubicación
+            // Función para seleccionar una ubicación
+            void seleccionarUbicacion(
+                String placeId, String descripcionSeleccionada) async {
               try {
                 final details = await _googlePlace.details.get(placeId);
-                if (details != null && details.result != null) {
-                  final location = details.result!.geometry!.location!;
-                  LatLng nuevaPosicion = LatLng(location.lat!, location.lng!);
+                if (details?.result?.geometry?.location == null) return;
 
-                  // Obtener dirección completa
-                  String direccionCompleta = details.result!.formattedAddress ??
-                      "Dirección desconocida";
+                final location = details!.result!.geometry!.location!;
+                LatLng nuevaPosicion = LatLng(location.lat!, location.lng!);
+                String direccionCompleta =
+                    details.result!.formattedAddress ?? "Dirección desconocida";
 
-                  // Extraer barrio, nombre del lugar y código postal si están disponibles
-                  String barrio = "Barrio desconocido";
-                  String placeName =
-                      details.result!.name ?? "Ubicación desconocida";
-                  String postalCode = "Sin código postal";
+                // Extraer barrio y código postal
+                String barrio = "Barrio desconocido";
+                String postalCode = "Sin código postal";
 
-                  if (details.result!.addressComponents != null) {
-                    for (var component in details.result!.addressComponents!) {
-                      if (component.types!.contains("sublocality") ||
-                          component.types!.contains("neighborhood")) {
-                        barrio = component.longName!;
-                      }
-                      if (component.types!.contains("postal_code")) {
-                        postalCode = component.longName!;
-                      }
-                    }
+                details.result!.addressComponents?.forEach((component) {
+                  if (component.types!.contains("sublocality") ||
+                      component.types!.contains("neighborhood")) {
+                    barrio = component.longName!;
                   }
+                  if (component.types!.contains("postal_code")) {
+                    postalCode = component.longName!;
+                  }
+                });
 
-                  _ultimaDireccionSeleccionada = direccionCompleta;
+                // Actualizar estado con la nueva ubicación
+                setState(() {
+                  _ultimaDireccionSeleccionada = descripcionSeleccionada;
                   _ultimaUbicacionSeleccionada = nuevaPosicion;
+                  _mostrarInformacionUbicacion = true;
+                  _mostrarBotonTaxi = false;
+                  _searchController.clear();
 
-                  setState(() {
-                    _mostrarInformacionUbicacion = true;
-                    _mostrarBotonTaxi = false;
-                    _searchController.clear();
-
-                    // Actualizar marcador en el mapa
-                    _markers.removeWhere((marker) =>
-                        marker.markerId.value == "ubicacion_seleccionada");
-                    _markers.add(
-                      Marker(
-                        markerId: const MarkerId("ubicacion_seleccionada"),
-                        position: nuevaPosicion,
-                        infoWindow: InfoWindow(
-                          title: "$placeName ($barrio)",
-                          snippet:
-                              "$direccionCompleta\nCódigo Postal: $postalCode",
-                        ),
+                  _markers
+                    ..removeWhere(
+                        (m) => m.markerId.value == "ubicacion_seleccionada")
+                    ..add(Marker(
+                      markerId: const MarkerId("ubicacion_seleccionada"),
+                      position: nuevaPosicion,
+                      infoWindow: InfoWindow(
+                        title: barrio,
+                        snippet:
+                            "$direccionCompleta\nCódigo Postal: $postalCode",
                       ),
-                    );
+                    ));
 
-                    // Actualizar polilínea
-                    _polylines.clear();
-                    _polylines.add(
-                      Polyline(
-                        polylineId: const PolylineId('route'),
-                        points: [_userLocation!, nuevaPosicion],
-                        color: Colors.blue,
-                        width: 4,
-                      ),
-                    );
+                  _polylines
+                    ..clear()
+                    ..add(Polyline(
+                      polylineId: const PolylineId('ruta'),
+                      points: [_userLocation!, nuevaPosicion],
+                      color: const Color.fromARGB(255, 0, 0, 0),
+                      width: 4,
+                    ));
 
-                    _ajustarVistaMarcadores();
-                  });
+                  _ajustarVistaMarcadores();
+                });
 
-                  Navigator.pop(context);
-                }
+                Navigator.pop(context);
               } catch (e) {
                 debugPrint("Error al seleccionar ubicación: $e");
               }
@@ -265,15 +259,12 @@ class _MapaClienteState extends State<MapaCliente> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _searchController,
-                    onChanged: (input) {
-                      buscarUbicaciones(input);
-                    },
+                    onChanged: buscarUbicaciones,
                     decoration: InputDecoration(
                       hintText: "Buscar ubicación...",
                       prefixIcon: const Icon(Icons.search),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12.0),
-                      ),
+                          borderRadius: BorderRadius.circular(12.0)),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -288,15 +279,15 @@ class _MapaClienteState extends State<MapaCliente> {
                             leading: const Icon(Icons.location_on,
                                 color: Colors.blue),
                             title: Text(prediction.description ?? ""),
-                            onTap: () {
-                              seleccionarUbicacion(prediction.placeId!);
-                            },
+                            onTap: () => seleccionarUbicacion(
+                              prediction.placeId!,
+                              prediction.description ?? "Dirección desconocida",
+                            ),
                           );
                         },
                       ),
-                    )
-                  else
-                    const SizedBox(height: 10),
+                    ),
+                  const SizedBox(height: 10),
                   CustomButton(
                     text: 'Cancelar',
                     onPressed: () async {
@@ -311,10 +302,8 @@ class _MapaClienteState extends State<MapaCliente> {
                             _solicitudId = null;
                             _mostrarInformacionUbicacion = false;
                             _mostrarBotonTaxi = true;
-
-                            _markers.removeWhere((marker) =>
-                                marker.markerId.value ==
-                                "ubicacion_seleccionada");
+                            _markers.removeWhere((m) =>
+                                m.markerId.value == "ubicacion_seleccionada");
                             _polylines.clear();
 
                             if (_userLocation != null) {
@@ -341,7 +330,7 @@ class _MapaClienteState extends State<MapaCliente> {
 
                       Navigator.pop(context);
                     },
-                    width: 115,
+                    width: 130,
                     height: 50,
                     fontSize: 16,
                   ),
@@ -354,18 +343,24 @@ class _MapaClienteState extends State<MapaCliente> {
     );
   }
 
-  Future<void> enviarSolicitud() async {
+  Future<void> enviarSolicitud(BuildContext context) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null ||
-          _userLocation == null ||
-          _ultimaUbicacionSeleccionada == null) {
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Usuario no autenticado')),
+        );
+        return;
+      }
+
+      if (_userLocation == null || _ultimaUbicacionSeleccionada == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Información de ubicación incompleta')),
         );
         return;
       }
 
+      // Crear una nueva solicitud en Firestore con el nombre de la ubicación seleccionada
       DocumentReference solicitudRef =
           await FirebaseFirestore.instance.collection('solicitud').add({
         'clienteId': user.uid,
@@ -375,16 +370,22 @@ class _MapaClienteState extends State<MapaCliente> {
           _ultimaUbicacionSeleccionada!.latitude,
           _ultimaUbicacionSeleccionada!.longitude,
         ),
+        'direccion_seleccionada':
+            _ultimaDireccionSeleccionada, // Nuevo campo agregado
         'estado': 'pendiente',
         'timestamp': FieldValue.serverTimestamp(),
       });
 
+      // Actualizar UI
       setState(() {
         _solicitudId = solicitudRef.id;
         _mostrarInformacionUbicacion = false;
-        _mostrandoBusquedaConductor = true;
       });
 
+      // Enviar notificación a los conductores cercanos
+      await _enviarNotificacionConductores(solicitudRef.id);
+
+      // Escuchar cambios en la solicitud en tiempo real
       _escucharCambiosSolicitud(_solicitudId!);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -398,13 +399,12 @@ class _MapaClienteState extends State<MapaCliente> {
         .collection('solicitud')
         .doc(solicitudId)
         .snapshots()
-        .listen((doc) async {
+        .listen((doc) {
       if (doc.exists) {
         String estado = doc['estado'] ?? '';
 
-        /// ✅ Si la solicitud es "cancelada", eliminarla de Firestore y actualizar la UI
         if (estado == 'cancelada') {
-          await FirebaseFirestore.instance
+          FirebaseFirestore.instance
               .collection('solicitud')
               .doc(solicitudId)
               .delete();
@@ -414,57 +414,41 @@ class _MapaClienteState extends State<MapaCliente> {
               _solicitudId = null;
               _mostrarInformacionUbicacion = false;
               _mostrarBotonTaxi = true;
-
-              // Eliminar el marcador de la ubicación seleccionada
-              _markers.removeWhere((marker) =>
-                  marker.markerId.value == "ubicacion_seleccionada");
-
-              // Limpiar las polilíneas
+              _markers.removeWhere(
+                  (m) => m.markerId.value == "ubicacion_seleccionada");
               _polylines.clear();
-
-              // Recentrar el mapa en la ubicación inicial
-              if (_userLocation != null) {
-                _mapController.animateCamera(
-                  CameraUpdate.newLatLngZoom(_userLocation!, 16.0),
-                );
-              }
             });
 
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text(
-                      'La solicitud ha sido cancelada y eliminada de la base de datos.')),
+              const SnackBar(content: Text('Solicitud cancelada y eliminada.')),
             );
           }
         }
 
-        /// ✅ Si la solicitud es "aceptada", cerrar el loader y navegar a ClienteRecogida
         if (estado == 'aceptada') {
-          String conductorId = doc['conductorId'] ?? '';
           GeoPoint ubicacionInicial = doc['ubicacion_inicial'];
           GeoPoint ubicacionDestino = doc['ubicacion_seleccionada'];
 
           if (mounted) {
-            if (Navigator.canPop(context)) {
-              Navigator.of(context, rootNavigator: true).pop();
-            }
+            setState(() {
+              _mostrarInformacionUbicacion = true;
+              _markers.add(Marker(
+                markerId: const MarkerId("ubicacion_seleccionada"),
+                position: LatLng(
+                    ubicacionDestino.latitude, ubicacionDestino.longitude),
+                infoWindow: const InfoWindow(title: "Destino seleccionado"),
+              ));
 
-            Future.delayed(const Duration(milliseconds: 300), () {
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ClienteRecogida(
-                      solicitudId: solicitudId,
-                      conductorId: conductorId,
-                      ubicacionInicial: LatLng(ubicacionInicial.latitude,
-                          ubicacionInicial.longitude),
-                      ubicacionDestino: LatLng(ubicacionDestino.latitude,
-                          ubicacionDestino.longitude),
-                    ),
-                  ),
-                );
-              }
+              _polylines.clear();
+              _polylines.add(Polyline(
+                polylineId: const PolylineId('ruta'),
+                points: [
+                  LatLng(ubicacionInicial.latitude, ubicacionInicial.longitude),
+                  LatLng(ubicacionDestino.latitude, ubicacionDestino.longitude)
+                ],
+                color: const Color.fromARGB(255, 229, 243, 33),
+                width: 4,
+              ));
             });
           }
         }
@@ -472,53 +456,47 @@ class _MapaClienteState extends State<MapaCliente> {
     });
   }
 
-  Future<void> _enviarNotificacionATodosLosConductores(
-      String solicitudId) async {
+  Future<void> _enviarNotificacionPush(String token, String solicitudId) async {
     try {
-      QuerySnapshot conductores = await FirebaseFirestore.instance
-          .collection('conductores')
-          .where('disponible', isEqualTo: true)
-          .get();
+      await FirebaseFirestore.instance.collection('notificaciones').add({
+        'token': token,
+        'titulo': 'Nueva solicitud de viaje',
+        'mensaje':
+            'Un cliente ha solicitado un viaje. Acepta la solicitud ahora.',
+        'solicitudId': solicitudId,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
 
-      for (var doc in conductores.docs) {
-        String token = doc['fcmToken'] ?? '';
-        if (token.isNotEmpty) {
-          await _enviarNotificacion(token, solicitudId);
-        }
-      }
+      debugPrint("✅ Notificación enviada al conductor con token: $token");
     } catch (e) {
-      print("Error enviando notificación: $e");
+      debugPrint("❌ Error al enviar la notificación push: $e");
     }
   }
 
-  Future<void> _enviarNotificacion(String token, String solicitudId) async {
-    const String serverKey =
-        'BAxoHsuKFFIekEnr0FGYnxFo2FII3DUqfx64EKxb_YR5YHrsjDKILTDkh5il8d78A83R4rbxb-yUwOR4_MssNYI'; // 🔥 Reemplázala con tu clave real
+  Future<void> _enviarNotificacionConductores(String solicitudId) async {
+    try {
+      QuerySnapshot conductoresSnapshot = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .where('tipo', isEqualTo: 'conductor')
+          .get();
 
-    final body = {
-      "to": token,
-      "notification": {
-        "title": "Nueva solicitud de taxi",
-        "body": "Un cliente ha solicitado un taxi. Acepta la solicitud.",
-      },
-      "data": {
-        "solicitudId": solicitudId,
+      List<String> tokens = conductoresSnapshot.docs
+          .map((doc) => doc['token'] as String?)
+          .where((token) => token != null)
+          .cast<String>()
+          .toList();
+
+      if (tokens.isEmpty) {
+        debugPrint(
+            "No hay conductores disponibles para recibir la notificación.");
+        return;
       }
-    };
 
-    final response = await http.post(
-      Uri.parse("https://fcm.googleapis.com/fcm/send"),
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "key=$serverKey",
-      },
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode == 200) {
-      print("Notificación enviada con éxito.");
-    } else {
-      print("Error al enviar la notificación: ${response.body}");
+      for (String token in tokens) {
+        await _enviarNotificacionPush(token, solicitudId);
+      }
+    } catch (e) {
+      debugPrint("Error al enviar notificación a conductores: $e");
     }
   }
 
@@ -610,7 +588,15 @@ class _MapaClienteState extends State<MapaCliente> {
                           fontSize: 16,
                         ),
                       ),
-                      Text(_ultimaDireccionSeleccionada),
+                      Text(
+                        _ultimaDireccionSeleccionada.isNotEmpty
+                            ? _ultimaDireccionSeleccionada
+                            : "No se ha seleccionado una ubicación",
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.black,
+                        ),
+                      ),
                       const SizedBox(height: 20),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -697,7 +683,7 @@ class _MapaClienteState extends State<MapaCliente> {
                                 );
                               }
                             },
-                            width: 115,
+                            width: 130,
                             height: 50,
                             fontSize: 16,
                           ),
@@ -705,139 +691,108 @@ class _MapaClienteState extends State<MapaCliente> {
                             text: 'Aceptar',
                             onPressed: () async {
                               try {
-                                final user = FirebaseAuth.instance.currentUser;
-
-                                if (user != null &&
-                                    _userLocation != null &&
-                                    _ultimaUbicacionSeleccionada != null) {
-                                  // 🔹 Cerrar la vista de ubicación seleccionada automáticamente
-                                  setState(() {
-                                    _mostrarInformacionUbicacion = false;
-                                  });
-
-                                  // 🔹 Cerrar el `showModalBottomSheet` si está abierto
-                                  if (Navigator.canPop(context)) {
-                                    Navigator.pop(context);
-                                  }
-
-                                  // 🔹 Mostrar un loader mientras se envía la solicitud
-                                  showDialog(
-                                    context: context,
-                                    barrierDismissible:
-                                        false, // No cerrar al tocar fuera
-                                    builder: (BuildContext context) {
-                                      return AlertDialog(
-                                        content: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const CircularProgressIndicator(),
-                                            const SizedBox(height: 15),
-                                            const Text("Buscando conductor..."),
-                                            const SizedBox(height: 10),
-                                            CustomButton(
-                                              text: "Cancelar",
-                                              onPressed: () async {
-                                                // 🔹 Si hay una solicitud activa, cancelarla en Firestore
-                                                if (_solicitudId != null) {
-                                                  await FirebaseFirestore
-                                                      .instance
-                                                      .collection('solicitud')
-                                                      .doc(_solicitudId)
-                                                      .update({
-                                                    'estado': 'cancelada'
-                                                  });
-                                                }
-
-                                                // 🔹 Cerrar el diálogo de carga y volver al mapa sin salir de la pantalla
-                                                Navigator.of(context,
-                                                        rootNavigator: true)
-                                                    .pop();
-
-                                                // 🔹 Volver al estado anterior en la UI
-                                                setState(() {
-                                                  _solicitudId = null;
-                                                  _mostrarInformacionUbicacion =
-                                                      false;
-                                                  _mostrarBotonTaxi = true;
-
-                                                  // Eliminar el marcador de la ubicación seleccionada
-                                                  _markers.removeWhere(
-                                                    (marker) =>
-                                                        marker.markerId.value ==
-                                                        "ubicacion_seleccionada",
-                                                  );
-
-                                                  // Limpiar las polilíneas
-                                                  _polylines.clear();
-
-                                                  // Recentrar el mapa en la ubicación inicial del usuario
-                                                  if (_userLocation != null) {
-                                                    _mapController
-                                                        .animateCamera(
-                                                      CameraUpdate
-                                                          .newLatLngZoom(
-                                                              _userLocation!,
-                                                              15.0),
-                                                    );
-                                                  }
+                                // 🔹 Mostrar Loader mientras se busca un conductor
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      content: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const CircularProgressIndicator(),
+                                          const SizedBox(height: 15),
+                                          const Text("Buscando conductor..."),
+                                          const SizedBox(height: 10),
+                                          CustomButton(
+                                            text: "Cancelar",
+                                            onPressed: () async {
+                                              if (_solicitudId != null) {
+                                                await FirebaseFirestore.instance
+                                                    .collection('solicitud')
+                                                    .doc(_solicitudId)
+                                                    .update({
+                                                  'estado': 'cancelada'
                                                 });
-                                              },
-                                              width: 115,
-                                              height: 50,
-                                              fontSize: 16,
-                                            ),
-                                          ],
+                                              }
+
+                                              Navigator.of(context,
+                                                      rootNavigator: true)
+                                                  .pop();
+
+                                              setState(() {
+                                                _solicitudId = null;
+                                                _mostrarInformacionUbicacion =
+                                                    false;
+                                                _mostrarBotonTaxi = true;
+                                                _markers.removeWhere((marker) =>
+                                                    marker.markerId.value ==
+                                                    "ubicacion_seleccionada");
+                                                _polylines.clear();
+
+                                                if (_userLocation != null) {
+                                                  _mapController.animateCamera(
+                                                    CameraUpdate.newLatLngZoom(
+                                                        _userLocation!, 15.0),
+                                                  );
+                                                }
+                                              });
+                                            },
+                                            width: 130,
+                                            height: 50,
+                                            fontSize: 16,
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                );
+
+                                // 🔹 Enviar la solicitud a Firestore
+                                await enviarSolicitud(context);
+
+                                // 🔹 Escuchar en tiempo real si la solicitud es aceptada
+                                FirebaseFirestore.instance
+                                    .collection('solicitud')
+                                    .doc(_solicitudId)
+                                    .snapshots()
+                                    .listen((doc) {
+                                  if (doc.exists &&
+                                      doc['estado'] == 'aceptada') {
+                                    Navigator.of(context, rootNavigator: true)
+                                        .pop(); // 🔹 Cerrar el Loader
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => ClienteRecogida(
+                                          solicitudId: _solicitudId!,
+                                          conductorId: doc['conductorId'],
+                                          ubicacionInicial: LatLng(
+                                            doc['ubicacion_inicial'].latitude,
+                                            doc['ubicacion_inicial'].longitude,
+                                          ),
+                                          ubicacionDestino: LatLng(
+                                            doc['ubicacion_seleccionada']
+                                                .latitude,
+                                            doc['ubicacion_seleccionada']
+                                                .longitude,
+                                          ),
                                         ),
-                                      );
-                                    },
-                                  );
-
-                                  // 🔹 Crear la solicitud en Firestore
-                                  DocumentReference solicitudRef =
-                                      await FirebaseFirestore.instance
-                                          .collection('solicitud')
-                                          .add({
-                                    'clienteId': user.uid,
-                                    'ubicacion_inicial': GeoPoint(
-                                        _userLocation!.latitude,
-                                        _userLocation!.longitude),
-                                    'ubicacion_seleccionada': GeoPoint(
-                                        _ultimaUbicacionSeleccionada!.latitude,
-                                        _ultimaUbicacionSeleccionada!
-                                            .longitude),
-                                    'estado': 'pendiente',
-                                    'timestamp': FieldValue.serverTimestamp(),
-                                  });
-
-                                  setState(() {
-                                    _solicitudId = solicitudRef.id;
-                                  });
-
-                                  // 🔹 Mostrar mensaje de éxito
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          'Solicitud enviada, esperando conductor...'),
-                                    ),
-                                  );
-                                } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            'Error: Ubicación no disponible')),
-                                  );
-                                }
+                                      ),
+                                    );
+                                  }
+                                });
                               } catch (e) {
                                 Navigator.of(context, rootNavigator: true)
-                                    .pop(); // Cerrar el loader en caso de error
+                                    .pop(); // 🔹 Cerrar el loader en caso de error
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                      content: Text(
-                                          'Error al enviar la solicitud: $e')),
+                                      content:
+                                          Text('Error al solicitar viaje: $e')),
                                 );
                               }
                             },
-                            width: 115,
+                            width: 130,
                             height: 50,
                             fontSize: 16,
                           ),
@@ -855,7 +810,7 @@ class _MapaClienteState extends State<MapaCliente> {
               child: CustomButton(
                 text: 'Buscar Taxi',
                 onPressed: _mostrarCuadroBusqueda,
-                width: 150, // Ancho del botón
+                width: 160, // Ancho del botón
                 height: 50, // Alto del botón
                 fontSize: 16, // Tamaño de fuente del texto
               ),

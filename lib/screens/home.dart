@@ -63,7 +63,7 @@ class home extends StatelessWidget {
                     children: [
                       Image.asset(
                         'assets/img/user.png', // Ruta de la imagen (asegúrate de incluirla en `pubspec.yaml`)
-                        height: screenHeight * 0.08,
+                        height: screenHeight * 0.06,
                       ),
                       SizedBox(
                           width: screenWidth *
@@ -71,7 +71,7 @@ class home extends StatelessWidget {
                       Text(
                         "Clientes",
                         style: TextStyle(
-                            fontSize: screenWidth * 0.05), // Tamaño del texto
+                            fontSize: screenWidth * 0.04), // Tamaño del texto
                       ),
                     ],
                   ),
@@ -108,14 +108,14 @@ class home extends StatelessWidget {
                     children: [
                       Image.asset(
                           'assets/img/driver.png', // Ruta de la imagen (asegúrate de incluirla en `pubspec.yaml`)
-                          height: screenHeight * 0.08),
+                          height: screenHeight * 0.06),
                       SizedBox(
                           width: screenWidth *
                               0.03), // Espaciado entre la imagen y el texto
                       Text(
                         "Conductor",
                         style: TextStyle(
-                            fontSize: screenWidth * 0.05), // Tamaño del texto
+                            fontSize: screenWidth * 0.04), // Tamaño del texto
                       ),
                     ],
                   ),
