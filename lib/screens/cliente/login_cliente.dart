@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
@@ -29,6 +30,8 @@ class _LoginClienteState extends State<LoginCliente> {
   void _verificarUsuarioLogueado() {
     final User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // Guardar el token FCM
+      saveUserToken(user.uid);
       // Redirigir al mapa si el usuario ya está autenticado
       Future.microtask(() {
         Navigator.pushReplacement(
@@ -50,31 +53,27 @@ class _LoginClienteState extends State<LoginCliente> {
             .get();
 
         if (result.docs.isEmpty) {
-          // Mostrar un mensaje si el correo no está registrado
           _showDialog("Error", "Este usuario no está permitido");
           return;
         }
 
-        // Si el correo está registrado, intentar iniciar sesión
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        UserCredential userCredential =
+            await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
 
-        // ignore: use_build_context_synchronously
+        await saveUserToken(userCredential.user!.uid);
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Inicio de sesión exitoso")),
         );
 
-        // Navegar a la pantalla del mapa
-        // ignore: use_build_context_synchronously
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MapaCliente()),
         );
       } catch (e) {
-        // Mostrar mensaje de error en caso de excepción
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error al iniciar sesión: $e")),
         );
@@ -82,7 +81,21 @@ class _LoginClienteState extends State<LoginCliente> {
     }
   }
 
-// Función para mostrar un diálogo
+  // Función para guardar el token FCM en la base de datos
+  Future<void> saveUserToken(String userId) async {
+    String? token = await FirebaseMessaging.instance.getToken();
+    if (token != null) {
+      await _firestore
+          .collection('cliente')
+          .doc(userId)
+          .update({'fcm_token': token});
+      print("🔹 Token FCM guardado para $userId: $token");
+    } else {
+      print("⚠️ No se pudo obtener el token FCM.");
+    }
+  }
+
+  // Función para mostrar un diálogo
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -137,7 +150,7 @@ class _LoginClienteState extends State<LoginCliente> {
               children: [
                 Image.asset(
                   'assets/img/Login.jpg',
-                  width: 250.0, // Ancho en píxeles
+                  width: 250.0,
                   height: 230.0,
                 ),
                 const SizedBox(height: 40.0),
@@ -179,13 +192,12 @@ class _LoginClienteState extends State<LoginCliente> {
                 CustomButton(
                   text: 'Iniciar Sesión',
                   onPressed: _iniciarSesion,
-                  width: 202, // Ancho del botón
-                  height: 50, // Alto del botón
-                  fontSize: 16, // Tamaño de fuente del texto
+                  width: 202,
+                  height: 50,
+                  fontSize: 16,
                 ),
                 TextButton(
                   onPressed: () {
-                    // Ir a la página de registro
                     Navigator.push(
                       context,
                       MaterialPageRoute(

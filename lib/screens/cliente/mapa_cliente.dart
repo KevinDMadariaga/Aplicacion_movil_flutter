@@ -381,10 +381,6 @@ class _MapaClienteState extends State<MapaCliente> {
         _solicitudId = solicitudRef.id;
         _mostrarInformacionUbicacion = false;
       });
-
-      // Enviar notificación a los conductores cercanos
-      await _enviarNotificacionConductores(solicitudRef.id);
-
       // Escuchar cambios en la solicitud en tiempo real
       _escucharCambiosSolicitud(_solicitudId!);
     } catch (e) {
@@ -454,50 +450,6 @@ class _MapaClienteState extends State<MapaCliente> {
         }
       }
     });
-  }
-
-  Future<void> _enviarNotificacionPush(String token, String solicitudId) async {
-    try {
-      await FirebaseFirestore.instance.collection('notificaciones').add({
-        'token': token,
-        'titulo': 'Nueva solicitud de viaje',
-        'mensaje':
-            'Un cliente ha solicitado un viaje. Acepta la solicitud ahora.',
-        'solicitudId': solicitudId,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-
-      debugPrint("✅ Notificación enviada al conductor con token: $token");
-    } catch (e) {
-      debugPrint("❌ Error al enviar la notificación push: $e");
-    }
-  }
-
-  Future<void> _enviarNotificacionConductores(String solicitudId) async {
-    try {
-      QuerySnapshot conductoresSnapshot = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .where('tipo', isEqualTo: 'conductor')
-          .get();
-
-      List<String> tokens = conductoresSnapshot.docs
-          .map((doc) => doc['token'] as String?)
-          .where((token) => token != null)
-          .cast<String>()
-          .toList();
-
-      if (tokens.isEmpty) {
-        debugPrint(
-            "No hay conductores disponibles para recibir la notificación.");
-        return;
-      }
-
-      for (String token in tokens) {
-        await _enviarNotificacionPush(token, solicitudId);
-      }
-    } catch (e) {
-      debugPrint("Error al enviar notificación a conductores: $e");
-    }
   }
 
   @override

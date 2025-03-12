@@ -25,6 +25,7 @@ class _MapaConductorState extends State<MapaConductor> {
   String? _solicitudId;
   Stream<DocumentSnapshot>? _solicitudStream;
   StreamSubscription<Position>? _positionStreamSubscription;
+  bool _conectado = true;
 
   @override
   void initState() {
@@ -32,12 +33,25 @@ class _MapaConductorState extends State<MapaConductor> {
     _conductor = FirebaseAuth.instance.currentUser;
     _configurarNotificaciones();
     _iniciarSeguimientoUbicacion(); // Inicia el seguimiento de ubicación en tiempo real
+    _guardarTokenFCM(); // Llamada para guardar el token FCM
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _centrarUbicacionActual();
+  }
+
+  void _actualizarEstadoConductor(bool estado) {
+    setState(() {
+      _conectado = estado;
+    });
+    FirebaseFirestore.instance
+        .collection('conductor')
+        .doc(_conductor!.uid)
+        .update({
+      'conectado': _conectado,
+    });
   }
 
   @override
@@ -137,69 +151,69 @@ class _MapaConductorState extends State<MapaConductor> {
     }
   }
 
-  void _configurarNotificaciones() {
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      if (message.data.containsKey('solicitudId')) {
-        String solicitudId = message.data['solicitudId'];
-
-        // Verificar si la app está en primer plano
-        if (mounted) {
-          if (_solicitudId != solicitudId) {
-            _solicitudId = solicitudId;
-            _escucharSolicitudDesdeFirestore(solicitudId);
-          }
-        } else {
-          // Si la app está en segundo plano o cerrada, mostrar notificación push
-          _mostrarNotificacionLocal(
-              message.notification?.title ?? "Nueva Solicitud",
-              message.notification?.body ??
-                  "Un cliente ha solicitado un taxi.");
-        }
+  Future<void> _guardarTokenFCM() async {
+    try {
+      String? token = await FirebaseMessaging.instance.getToken();
+      if (token != null && _conductor != null) {
+        await FirebaseFirestore.instance
+            .collection('conductor')
+            .doc(_conductor!.uid)
+            .update({'token_fcm': token});
+        debugPrint("✅ Token FCM guardado: $token");
       }
-    });
-
-    // Manejar cuando la notificación es pulsada y la app está cerrada
-    FirebaseMessaging.instance
-        .getInitialMessage()
-        .then((RemoteMessage? message) {
-      if (message != null && message.data.containsKey('solicitudId')) {
-        String solicitudId = message.data['solicitudId'];
-        _solicitudId = solicitudId;
-        _escucharSolicitudDesdeFirestore(solicitudId);
-      }
-    });
-
-    // Escuchar cuando la notificación es tocada con la app en segundo plano
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      if (message.data.containsKey('solicitudId')) {
-        String solicitudId = message.data['solicitudId'];
-        _solicitudId = solicitudId;
-        _escucharSolicitudDesdeFirestore(solicitudId);
-      }
-    });
-
-    // Solo escuchar solicitudes en tiempo real cuando la app está abierta
-    if (mounted) {
-      FirebaseFirestore.instance
-          .collection('solicitud')
-          .where('estado', isEqualTo: 'pendiente')
-          .snapshots()
-          .listen((snapshot) {
-        for (var doc in snapshot.docs) {
-          if (_solicitudId != doc.id) {
-            _solicitudId = doc.id;
-            _escucharSolicitudDesdeFirestore(doc.id);
-          }
-        }
-      });
+    } catch (e) {
+      debugPrint("❌ Error al guardar el token FCM: $e");
     }
   }
 
-  /// Método para mostrar una notificación local en la barra de estado
-  void _mostrarNotificacionLocal(String titulo, String mensaje) async {
-    // Aquí debes usar un paquete de notificaciones locales como flutter_local_notifications
-    print("🔔 Notificación Local: $titulo - $mensaje");
-    // Implementar con flutter_local_notifications si es necesario
+  void _configurarNotificaciones() {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      if (message.data.containsKey('solicitudId')) {
+        String solicitudId = message.data['solicitudId'];
+
+        DocumentSnapshot conductorDoc = await FirebaseFirestore.instance
+            .collection('conductor')
+            .doc(_conductor!.uid)
+            .get();
+
+        if (conductorDoc.exists && (conductorDoc['conectado'] == true)) {
+          if (mounted) {
+            if (_solicitudId != solicitudId) {
+              _solicitudId = solicitudId;
+              _escucharSolicitudDesdeFirestore(solicitudId);
+            }
+          }
+        } else {
+          debugPrint("🔴 Conductor no conectado, ignorando solicitud");
+        }
+      }
+    });
+
+    FirebaseFirestore.instance
+        .collection('conductor')
+        .doc(_conductor!.uid)
+        .snapshots()
+        .listen((conductorDoc) {
+      if (conductorDoc.exists && (conductorDoc['conectado'] == true)) {
+        if (mounted) {
+          FirebaseFirestore.instance
+              .collection('solicitud')
+              .where('estado', isEqualTo: 'pendiente')
+              .snapshots()
+              .listen((snapshot) {
+            for (var doc in snapshot.docs) {
+              if (_solicitudId != doc.id) {
+                _solicitudId = doc.id;
+                _escucharSolicitudDesdeFirestore(doc.id);
+              }
+            }
+          });
+        }
+      } else {
+        debugPrint(
+            "🔴 Conductor desconectado, dejando de escuchar solicitudes");
+      }
+    });
   }
 
   void _escucharSolicitudDesdeFirestore(String solicitudId) {
@@ -275,6 +289,7 @@ class _MapaConductorState extends State<MapaConductor> {
             MaterialPageRoute(
               builder: (context) => ConductorRecogida(
                 clienteId: doc['clienteId'],
+                solicitudId: doc.id,
                 ubicacionInicial: doc['ubicacion_inicial'],
                 ubicacionDestino: doc['ubicacion_seleccionada'],
               ),
@@ -394,6 +409,24 @@ class _MapaConductorState extends State<MapaConductor> {
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
           ),
+          Positioned(
+            bottom: MediaQuery.of(context).size.height * 0.1,
+            left: MediaQuery.of(context).size.width * 0.31,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _conectado ? Colors.green : Colors.red,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              onPressed: () {
+                _actualizarEstadoConductor(!_conectado);
+              },
+              child: Text(
+                _conectado ? "🟢 Conectado" : "🔴 Desconectado",
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ),
+          ),
           if (_solicitudStream != null)
             StreamBuilder<DocumentSnapshot>(
               stream: _solicitudStream,
@@ -404,7 +437,6 @@ class _MapaConductorState extends State<MapaConductor> {
 
                 var solicitud = snapshot.data!.data() as Map<String, dynamic>;
                 GeoPoint ubicacionInicial = solicitud['ubicacion_inicial'];
-                // Se utiliza directamente el campo "direccion_seleccionada" del documento
                 String direccionSeleccionada =
                     solicitud['direccion_seleccionada'] ??
                         "Dirección no disponible";

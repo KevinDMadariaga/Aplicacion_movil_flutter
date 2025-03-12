@@ -4,16 +4,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geocoding/geocoding.dart';
 
 class ConductorRecogida extends StatefulWidget {
   final String clienteId;
-  final GeoPoint ubicacionInicial; // Ubicación del cliente (punto de recogida)
-  final GeoPoint
-      ubicacionDestino; // Ubicación destino (se conserva, pero no se muestra en el mapa)
+  final String solicitudId;
+  final GeoPoint ubicacionInicial;
+  final GeoPoint ubicacionDestino;
 
   const ConductorRecogida({
     Key? key,
     required this.clienteId,
+    required this.solicitudId,
     required this.ubicacionInicial,
     required this.ubicacionDestino,
   }) : super(key: key);
@@ -27,17 +29,69 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   Position? _currentPosition;
   GoogleMapController? _mapController;
   Set<Polyline> _polylines = {};
+  Set<Marker> _markers = {};
   String _tiempoEstimado = "Calculando...";
-  String _nombreCliente = "Cargando...";
+  String _nombreCliente = "CARGANDO...";
+  String _direccionCliente = "Obteniendo dirección...";
 
   @override
   void initState() {
     super.initState();
     _obtenerNombreCliente();
+    _obtenerDireccionCliente();
     _iniciarActualizacionUbicacion();
   }
 
-  // Inicia la actualización continua de la ubicación del conductor
+  void _obtenerNombreCliente() async {
+    try {
+      DocumentSnapshot clienteDoc = await FirebaseFirestore.instance
+          .collection('cliente')
+          .doc(widget.clienteId)
+          .get();
+
+      if (clienteDoc.exists) {
+        setState(() {
+          _nombreCliente = clienteDoc['nombre'].toString().toUpperCase();
+        });
+      } else {
+        setState(() {
+          _nombreCliente = "NO ENCONTRADO";
+        });
+      }
+    } catch (e) {
+      debugPrint("Error al obtener nombre del cliente: $e");
+      setState(() {
+        _nombreCliente = "ERROR AL CARGAR";
+      });
+    }
+  }
+
+  Future<void> _obtenerDireccionCliente() async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        widget.ubicacionInicial.latitude,
+        widget.ubicacionInicial.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        Placemark lugar = placemarks.first;
+        setState(() {
+          _direccionCliente =
+              "${lugar.street}, ${lugar.subLocality}, ${lugar.locality}";
+        });
+      } else {
+        setState(() {
+          _direccionCliente = "Dirección no disponible";
+        });
+      }
+    } catch (e) {
+      debugPrint("Error al obtener la dirección: $e");
+      setState(() {
+        _direccionCliente = "Error al obtener la dirección";
+      });
+    }
+  }
+
   void _iniciarActualizacionUbicacion() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -75,9 +129,9 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
       (Position posicion) async {
         setState(() {
           _currentPosition = posicion;
+          _actualizarMapa();
         });
 
-        // Actualiza la ubicación del conductor en Firestore
         final User? user = FirebaseAuth.instance.currentUser;
         if (user != null) {
           await FirebaseFirestore.instance
@@ -90,19 +144,10 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
             },
             SetOptions(merge: true),
           );
-        } else {
-          debugPrint("⚠️ Usuario no autenticado.");
         }
 
-        // Actualiza la cámara del mapa a la nueva ubicación
-        if (_mapController != null) {
-          _mapController!.animateCamera(
-            CameraUpdate.newLatLng(
-                LatLng(posicion.latitude, posicion.longitude)),
-          );
-        }
+        _ajustarCamara();
 
-        // Calcula la distancia al punto de recogida (ubicacionInicial)
         double distanceToPickup = Geolocator.distanceBetween(
           posicion.latitude,
           posicion.longitude,
@@ -114,180 +159,152 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
           _tiempoEstimado = "$tiempoEnMinutos min";
         });
 
-        // Trazabilidad dinámica: línea entre la ubicación actual del conductor y la ubicación del cliente
-        Set<Polyline> updatedPolylines = _polylines
-            .where((p) => p.polylineId.value != "dynamicRoute")
-            .toSet();
-        updatedPolylines.add(
+        _polylines = {
           Polyline(
-            polylineId: const PolylineId("dynamicRoute"),
+            polylineId: const PolylineId("ruta"),
             points: [
               LatLng(posicion.latitude, posicion.longitude),
               LatLng(widget.ubicacionInicial.latitude,
                   widget.ubicacionInicial.longitude),
             ],
             color: Colors.green,
-            width: 3,
+            width: 5,
           ),
-        );
-        setState(() {
-          _polylines = updatedPolylines;
-        });
-
-        // Si se llega al punto de recogida (dentro de un radio de 10 metros), se detiene la actualización.
-        if (distanceToPickup <= 10) {
-          await _positionStreamSubscription?.cancel();
-          _positionStreamSubscription = null;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Has llegado al punto de recogida del cliente.')),
-          );
-        }
-      },
-      onError: (error) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al actualizar ubicación: $error')),
-        );
+        };
       },
     );
   }
 
-  void _obtenerNombreCliente() async {
+void _notificarLlegada() async {
     try {
-      DocumentSnapshot clienteDoc = await FirebaseFirestore.instance
-          .collection('cliente')
-          .doc(widget.clienteId)
-          .get();
-
-      if (clienteDoc.exists) {
-        setState(() {
-          _nombreCliente = clienteDoc['nombre'] ?? "Desconocido";
-        });
-      } else {
-        setState(() {
-          _nombreCliente = "No encontrado";
-        });
+      if (widget.solicitudId.isEmpty) {
+        debugPrint("Error: solicitudId está vacío.");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error: ID de solicitud no válido.")),
+        );
+        return;
       }
+      
+      await FirebaseFirestore.instance
+          .collection('solicitud')
+          .doc(widget.solicitudId)
+          .update(
+        {
+          'llegada_conductor': 'llego',
+          'timestamp_llegada': FieldValue.serverTimestamp(),
+        },
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Has notificado tu llegada al cliente.")),
+      );
     } catch (e) {
-      debugPrint("Error al obtener nombre del cliente: $e");
-      setState(() {
-        _nombreCliente = "Error al cargar";
-      });
+      debugPrint("Error al notificar llegada: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al notificar la llegada: $e")),
+      );
     }
   }
 
-  @override
-  void dispose() {
-    _positionStreamSubscription?.cancel();
-    super.dispose();
+  void _actualizarMapa() {
+    _markers.clear();
+
+    _markers.add(
+      Marker(
+        markerId: const MarkerId("cliente"),
+        position: LatLng(
+          widget.ubicacionInicial.latitude,
+          widget.ubicacionInicial.longitude,
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: "📍 Cliente"),
+      ),
+    );
+
+    if (_currentPosition != null) {
+      _markers.add(
+        Marker(
+          markerId: const MarkerId("conductor"),
+          position: LatLng(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          infoWindow: const InfoWindow(title: "🚖 Conductor"),
+        ),
+      );
+
+      _ajustarCamara();
+    }
+
+    setState(() {});
+  }
+
+  void _ajustarCamara() {
+    if (_mapController != null && _currentPosition != null) {
+      LatLngBounds bounds = LatLngBounds(
+        southwest: LatLng(
+          _currentPosition!.latitude < widget.ubicacionInicial.latitude
+              ? _currentPosition!.latitude
+              : widget.ubicacionInicial.latitude,
+          _currentPosition!.longitude < widget.ubicacionInicial.longitude
+              ? _currentPosition!.longitude
+              : widget.ubicacionInicial.longitude,
+        ),
+        northeast: LatLng(
+          _currentPosition!.latitude > widget.ubicacionInicial.latitude
+              ? _currentPosition!.latitude
+              : widget.ubicacionInicial.latitude,
+          _currentPosition!.longitude > widget.ubicacionInicial.longitude
+              ? _currentPosition!.longitude
+              : widget.ubicacionInicial.longitude,
+        ),
+      );
+
+      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Se centra el mapa en la ubicación actual si está disponible, o en la ubicación del cliente
-    LatLng initialCameraPosition = LatLng(
-      widget.ubicacionInicial.latitude,
-      widget.ubicacionInicial.longitude,
-    );
-    if (_currentPosition != null) {
-      initialCameraPosition = LatLng(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-      );
-    }
-
-    String ubicacionActual = _currentPosition != null
-        ? "Lat ${_currentPosition!.latitude.toStringAsFixed(5)}, Lng ${_currentPosition!.longitude.toStringAsFixed(5)}"
-        : "Obteniendo ubicación...";
-
     return Scaffold(
-      appBar: AppBar(title: const Text("Recogida del Cliente")),
+      appBar: AppBar(title: const Text("SEGUIMIENTO DEL CLIENTE")),
       body: Column(
         children: [
-          Expanded(
-            flex: 2,
+          const SizedBox(height: 10),
+          const Text(
+            "RECOGER AL CLIENTE",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          Container(
+            height: 350,
+            margin: const EdgeInsets.symmetric(horizontal: 15),
             child: GoogleMap(
               initialCameraPosition: CameraPosition(
-                target: initialCameraPosition,
+                target: LatLng(widget.ubicacionInicial.latitude,
+                    widget.ubicacionInicial.longitude),
                 zoom: 15,
               ),
-              onMapCreated: (GoogleMapController controller) {
+              onMapCreated: (controller) {
                 _mapController = controller;
+                _ajustarCamara();
               },
               polylines: _polylines,
-              // Se muestran únicamente los marcadores para el cliente y para el conductor
-              markers: {
-                Marker(
-                  markerId: const MarkerId("pickup"),
-                  position: LatLng(
-                    widget.ubicacionInicial.latitude,
-                    widget.ubicacionInicial.longitude,
-                  ),
-                  infoWindow: const InfoWindow(title: "Cliente"),
-                ),
-                if (_currentPosition != null)
-                  Marker(
-                    markerId: const MarkerId("current"),
-                    position: LatLng(
-                      _currentPosition!.latitude,
-                      _currentPosition!.longitude,
-                    ),
-                    infoWindow: const InfoWindow(title: "Conductor"),
-                  ),
-              },
+              markers: _markers,
             ),
           ),
-          Expanded(
-            flex: 1,
-            child: Center(
-              child: Card(
-                margin: const EdgeInsets.all(10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15.0),
-                ),
-                elevation: 5,
-                child: Padding(
-                  padding: const EdgeInsets.all(15.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Cliente: $_nombreCliente",
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "Ubicación Cliente:\nLat: ${widget.ubicacionInicial.latitude}, Lng: ${widget.ubicacionInicial.longitude}",
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "Tiempo estimado a recogida: $_tiempoEstimado",
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Center(
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            await _positionStreamSubscription?.cancel();
-                            Navigator.pop(context);
-                          },
-                          child: const Text("Finalizar Recogida"),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          const SizedBox(height: 20),
+          Text("Cliente: $_nombreCliente",
+              style: const TextStyle(fontSize: 18)),
+          Text("📍 $_direccionCliente", style: const TextStyle(fontSize: 16)),
+          Text("⏳ Tiempo estimado: $_tiempoEstimado",
+              style: const TextStyle(fontSize: 16, color: Colors.green)),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: _notificarLlegada,
+            child: const Text("Notificar llegada"),
           ),
         ],
       ),
