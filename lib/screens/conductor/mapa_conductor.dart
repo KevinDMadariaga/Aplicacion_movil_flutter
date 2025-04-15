@@ -34,6 +34,8 @@ class _MapaConductorState extends State<MapaConductor> {
     _configurarNotificaciones();
     _iniciarSeguimientoUbicacion(); // Inicia el seguimiento de ubicación en tiempo real
     _guardarTokenFCM(); // Llamada para guardar el token FCM
+    // Recuperar el estado de conexión del conductor al iniciar la aplicación
+    _recuperarEstadoConductor();
   }
 
   @override
@@ -42,15 +44,42 @@ class _MapaConductorState extends State<MapaConductor> {
     _centrarUbicacionActual();
   }
 
+  void _recuperarEstadoConductor() async {
+    try {
+      DocumentSnapshot conductorDoc = await FirebaseFirestore.instance
+          .collection('conductor')
+          .doc(_conductor!.uid)
+          .get();
+
+      if (conductorDoc.exists) {
+        bool estadoConductor = conductorDoc['conectado'] ??
+            true; // Predeterminado a true si no existe
+        setState(() {
+          _conectado = estadoConductor; // Recupera el estado de conexión
+        });
+      }
+    } catch (e) {
+      print("Error al recuperar el estado del conductor: $e");
+    }
+  }
+
   void _actualizarEstadoConductor(bool estado) {
     setState(() {
-      _conectado = estado;
+      _conectado = estado; // Actualiza el estado local
     });
+
+    // Guarda el estado en Firestore
     FirebaseFirestore.instance
         .collection('conductor')
         .doc(_conductor!.uid)
         .update({
-      'conectado': _conectado,
+      'conectado': _conectado, // Actualiza el estado de conexión en Firestore
+    }).catchError((e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al actualizar el estado: $e')),
+        );
+      }
     });
   }
 
@@ -168,37 +197,40 @@ class _MapaConductorState extends State<MapaConductor> {
 
   void _configurarNotificaciones() {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      if (message.data.containsKey('solicitudId')) {
-        String solicitudId = message.data['solicitudId'];
+      // Solo escuchar solicitudes si el conductor está conectado
+      DocumentSnapshot conductorDoc = await FirebaseFirestore.instance
+          .collection('conductor')
+          .doc(_conductor!.uid)
+          .get();
 
-        DocumentSnapshot conductorDoc = await FirebaseFirestore.instance
-            .collection('conductor')
-            .doc(_conductor!.uid)
-            .get();
+      if (conductorDoc.exists && conductorDoc['conectado'] == true) {
+        if (message.data.containsKey('solicitudId')) {
+          String solicitudId = message.data['solicitudId'];
 
-        if (conductorDoc.exists && (conductorDoc['conectado'] == true)) {
           if (mounted) {
             if (_solicitudId != solicitudId) {
               _solicitudId = solicitudId;
               _escucharSolicitudDesdeFirestore(solicitudId);
             }
           }
-        } else {
-          debugPrint("🔴 Conductor no conectado, ignorando solicitud");
         }
+      } else {
+        debugPrint("🔴 Conductor no conectado, ignorando solicitud");
       }
     });
 
+    // Escuchar cambios en la conexión del conductor en Firestore
     FirebaseFirestore.instance
         .collection('conductor')
         .doc(_conductor!.uid)
         .snapshots()
         .listen((conductorDoc) {
-      if (conductorDoc.exists && (conductorDoc['conectado'] == true)) {
+      if (conductorDoc.exists && conductorDoc['conectado'] == true) {
         if (mounted) {
           FirebaseFirestore.instance
               .collection('solicitud')
-              .where('estado', isEqualTo: 'pendiente')
+              .where('estado',
+                  isEqualTo: 'pendiente') // Solo solicitudes pendientes
               .snapshots()
               .listen((snapshot) {
             for (var doc in snapshot.docs) {
@@ -218,10 +250,15 @@ class _MapaConductorState extends State<MapaConductor> {
 
   void _escucharSolicitudDesdeFirestore(String solicitudId) {
     setState(() {
-      _solicitudStream = FirebaseFirestore.instance
-          .collection('solicitud')
-          .doc(solicitudId)
-          .snapshots();
+      // Solo iniciar el stream si el conductor está conectado
+      if (_conectado) {
+        _solicitudStream = FirebaseFirestore.instance
+            .collection('solicitud')
+            .doc(solicitudId)
+            .snapshots();
+      } else {
+        _solicitudStream = null; // No escuchar si está desconectado
+      }
     });
   }
 
@@ -419,7 +456,15 @@ class _MapaConductorState extends State<MapaConductor> {
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
               onPressed: () {
+                // Cambiar el estado de conexión
                 _actualizarEstadoConductor(!_conectado);
+                // Si el conductor se desconecta, detener la escucha de solicitudes
+                if (!_conectado) {
+                  setState(() {
+                    _solicitudStream =
+                        null; // Dejar de escuchar las solicitudes
+                  });
+                }
               },
               child: Text(
                 _conectado ? "🟢 Conectado" : "🔴 Desconectado",

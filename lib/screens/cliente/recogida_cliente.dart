@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
-import 'dart:async';
+import 'package:percent_indicator/linear_percent_indicator.dart';
 
 class ClienteRecogida extends StatefulWidget {
   final String solicitudId;
@@ -31,8 +32,8 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   String _nombreConductor = "DESCONOCIDO";
   String _tiempoEstimado = "Calculando...";
   String _direccionConductor = "Obteniendo dirección...";
-  StreamSubscription<DocumentSnapshot>? _conductorSubscription;
-  StreamSubscription<DocumentSnapshot>? _solicitudSubscription;
+  double _progreso = 0.0;
+  bool _recogido = false;
 
   @override
   void initState() {
@@ -43,7 +44,6 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
   @override
   void dispose() {
-    _conductorSubscription?.cancel();
     super.dispose();
   }
 
@@ -66,22 +66,19 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   void _escucharUbicacionConductor() {
-    _conductorSubscription = FirebaseFirestore.instance
+    FirebaseFirestore.instance
         .collection('conductor')
         .doc(widget.conductorId)
         .snapshots()
         .listen((doc) async {
       if (doc.exists && doc.data()!.containsKey('ubicacion')) {
         GeoPoint posicion = doc['ubicacion'];
-
         setState(() {
           _ubicacionConductor = LatLng(posicion.latitude, posicion.longitude);
           _actualizarMapa();
           _actualizarTrazabilidad();
         });
-
         await _obtenerDireccionConductor();
-        _calcularTiempoEstimado();
       } else {
         debugPrint("No se encontró la ubicación del conductor en Firestore.");
       }
@@ -116,43 +113,6 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     }
   }
 
-  Future<void> _calcularTiempoEstimado() async {
-    if (_ubicacionConductor != null) {
-      double distancia = Geolocator.distanceBetween(
-        _ubicacionConductor!.latitude,
-        _ubicacionConductor!.longitude,
-        widget.ubicacionInicial.latitude,
-        widget.ubicacionInicial.longitude,
-      );
-
-      int tiempoEnMinutos = (distancia / 250).round();
-      setState(() {
-        _tiempoEstimado = "$tiempoEnMinutos min";
-      });
-    }
-  }
-
-  void _actualizarTrazabilidad() {
-    if (_ubicacionConductor == null) return;
-
-    setState(() {
-      _polylines.clear();
-      _polylines.add(Polyline(
-        polylineId: const PolylineId("trazabilidad"),
-        color: Colors.blueAccent,
-        width: 5,
-        points: [
-          _ubicacionConductor!,
-          widget.ubicacionInicial,
-        ],
-      ));
-    });
-
-    _mapController.animateCamera(
-      CameraUpdate.newLatLng(_ubicacionConductor!),
-    );
-  }
-
   void _actualizarMapa() {
     _markers.clear();
 
@@ -175,18 +135,47 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     setState(() {});
   }
 
-  void _escucharEstadoSolicitud() {
-    _solicitudSubscription = FirebaseFirestore.instance
-        .collection('solicitud')
-        .doc(widget.solicitudId)
-        .snapshots()
-        .listen((doc) {
-      if (doc.exists && doc.data()!.containsKey('llegada_conductor')) {
-        if (doc['llegada_conductor'] == 'llego') {
-          Navigator.pushReplacementNamed(context, 'DestinoCliente');
-        }
-      }
+  void _actualizarTrazabilidad() {
+    if (_ubicacionConductor == null) return;
+
+    setState(() {
+      _polylines.clear();
+      _polylines.add(Polyline(
+        polylineId: const PolylineId("trazabilidad"),
+        color: Colors.green,
+        width: 5,
+        points: [
+          _ubicacionConductor!,
+          widget.ubicacionInicial,
+        ],
+      ));
     });
+  }
+
+  void _ajustarCamara() {
+    if (_ubicacionConductor == null) return;
+
+    final latitudes = [
+      _ubicacionConductor!.latitude,
+      widget.ubicacionInicial.latitude
+    ];
+    final longitudes = [
+      _ubicacionConductor!.longitude,
+      widget.ubicacionInicial.longitude
+    ];
+
+    final bounds = LatLngBounds(
+      southwest: LatLng(
+        latitudes.reduce((a, b) => a < b ? a : b),
+        longitudes.reduce((a, b) => a < b ? a : b),
+      ),
+      northeast: LatLng(
+        latitudes.reduce((a, b) => a > b ? a : b),
+        longitudes.reduce((a, b) => a > b ? a : b),
+      ),
+    );
+
+    _mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
   @override
@@ -194,21 +183,9 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     return Scaffold(
       appBar: AppBar(title: const Text("Seguimiento del Conductor")),
       body: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: Text(
-              "CONDUCTOR EN RUTA",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
           Container(
-            height: 250,
+            height: MediaQuery.of(context).size.height * 0.4,
             margin: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(15),
@@ -229,35 +206,61 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                 ),
                 markers: _markers,
                 polylines: _polylines,
-                onMapCreated: (controller) => _mapController = controller,
+                onMapCreated: (controller) {
+                  _mapController = controller;
+                  _ajustarCamara();
+                },
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
+            child: Row(
               children: [
-                Text(
-                  "🚖 $_nombreConductor",
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                CircleAvatar(
+                  radius: 35,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: AssetImage(
+                      'assets/images/default_avatar.png'), // Puedes cambiarlo por NetworkImage si usas URL de Firestore
                 ),
-                Text(
-                  "📍 $_direccionConductor",
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "🚖 $_nombreConductor",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "📍 $_direccionConductor",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "⏳ Tiempo estimado: $_tiempoEstimado",
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          Text(
-            "⏳ Tiempo estimado: $_tiempoEstimado",
-            style: const TextStyle(fontSize: 18),
+          LinearPercentIndicator(
+            animation: true,
+            lineHeight: 20.0,
+            percent: _progreso,
+            barRadius: const Radius.circular(10),
+            progressColor: Colors.green,
+            backgroundColor: Colors.grey[300]!,
           ),
         ],
       ),

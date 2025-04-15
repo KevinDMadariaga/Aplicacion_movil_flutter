@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:taxi_app/components/boton.dart';
+import 'package:taxi_app/screens/conductor/destino_conductor.dart';
 
 class ConductorRecogida extends StatefulWidget {
   final String clienteId;
@@ -33,6 +35,7 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   String _tiempoEstimado = "Calculando...";
   String _nombreCliente = "CARGANDO...";
   String _direccionCliente = "Obteniendo dirección...";
+  bool _notificando = false; // Nueva bandera de carga
 
   @override
   void initState() {
@@ -42,6 +45,12 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     _iniciarActualizacionUbicacion();
   }
 
+  @override
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    super.dispose();
+  }
+
   void _obtenerNombreCliente() async {
     try {
       DocumentSnapshot clienteDoc = await FirebaseFirestore.instance
@@ -49,20 +58,13 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
           .doc(widget.clienteId)
           .get();
 
-      if (clienteDoc.exists) {
+      if (clienteDoc.exists && mounted) {
         setState(() {
           _nombreCliente = clienteDoc['nombre'].toString().toUpperCase();
-        });
-      } else {
-        setState(() {
-          _nombreCliente = "NO ENCONTRADO";
         });
       }
     } catch (e) {
       debugPrint("Error al obtener nombre del cliente: $e");
-      setState(() {
-        _nombreCliente = "ERROR AL CARGAR";
-      });
     }
   }
 
@@ -73,52 +75,20 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
         widget.ubicacionInicial.longitude,
       );
 
-      if (placemarks.isNotEmpty) {
+      if (placemarks.isNotEmpty && mounted) {
         Placemark lugar = placemarks.first;
         setState(() {
           _direccionCliente =
               "${lugar.street}, ${lugar.subLocality}, ${lugar.locality}";
         });
-      } else {
-        setState(() {
-          _direccionCliente = "Dirección no disponible";
-        });
       }
     } catch (e) {
       debugPrint("Error al obtener la dirección: $e");
-      setState(() {
-        _direccionCliente = "Error al obtener la dirección";
-      });
     }
   }
 
   void _iniciarActualizacionUbicacion() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Los servicios de ubicación están deshabilitados.')),
-      );
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Permisos de ubicación denegados.')),
-        );
-        return;
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Permisos de ubicación denegados permanentemente.')),
-      );
-      return;
-    }
-
+    LocationPermission permission = await Geolocator.requestPermission();
     LocationSettings settings = const LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
@@ -127,83 +97,48 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     _positionStreamSubscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
       (Position posicion) async {
+        if (!mounted) return;
+
         setState(() {
           _currentPosition = posicion;
           _actualizarMapa();
         });
 
-        final User? user = FirebaseAuth.instance.currentUser;
+        final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
           await FirebaseFirestore.instance
               .collection('conductor')
               .doc(user.uid)
-              .set(
-            {
-              'ubicacion': GeoPoint(posicion.latitude, posicion.longitude),
-              'ultima_actualizacion': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
+              .set({
+            'ubicacion': GeoPoint(posicion.latitude, posicion.longitude),
+            'ultima_actualizacion': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
         }
 
-        _ajustarCamara();
-
-        double distanceToPickup = Geolocator.distanceBetween(
+        double distancia = Geolocator.distanceBetween(
           posicion.latitude,
           posicion.longitude,
           widget.ubicacionInicial.latitude,
           widget.ubicacionInicial.longitude,
         );
-        int tiempoEnMinutos = (distanceToPickup / 250).round();
-        setState(() {
-          _tiempoEstimado = "$tiempoEnMinutos min";
-        });
 
-        _polylines = {
-          Polyline(
-            polylineId: const PolylineId("ruta"),
-            points: [
-              LatLng(posicion.latitude, posicion.longitude),
-              LatLng(widget.ubicacionInicial.latitude,
-                  widget.ubicacionInicial.longitude),
-            ],
-            color: Colors.green,
-            width: 5,
-          ),
-        };
+        setState(() {
+          _tiempoEstimado = "${(distancia / 250).round()} min";
+          _polylines = {
+            Polyline(
+              polylineId: const PolylineId("ruta"),
+              points: [
+                LatLng(posicion.latitude, posicion.longitude),
+                LatLng(widget.ubicacionInicial.latitude,
+                    widget.ubicacionInicial.longitude),
+              ],
+              color: Colors.green,
+              width: 5,
+            ),
+          };
+        });
       },
     );
-  }
-
-void _notificarLlegada() async {
-    try {
-      if (widget.solicitudId.isEmpty) {
-        debugPrint("Error: solicitudId está vacío.");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error: ID de solicitud no válido.")),
-        );
-        return;
-      }
-      
-      await FirebaseFirestore.instance
-          .collection('solicitud')
-          .doc(widget.solicitudId)
-          .update(
-        {
-          'llegada_conductor': 'llego',
-          'timestamp_llegada': FieldValue.serverTimestamp(),
-        },
-      );
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Has notificado tu llegada al cliente.")),
-      );
-    } catch (e) {
-      debugPrint("Error al notificar llegada: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error al notificar la llegada: $e")),
-      );
-    }
   }
 
   void _actualizarMapa() {
@@ -233,35 +168,58 @@ void _notificarLlegada() async {
           infoWindow: const InfoWindow(title: "🚖 Conductor"),
         ),
       );
-
-      _ajustarCamara();
     }
 
     setState(() {});
   }
 
-  void _ajustarCamara() {
-    if (_mapController != null && _currentPosition != null) {
-      LatLngBounds bounds = LatLngBounds(
-        southwest: LatLng(
-          _currentPosition!.latitude < widget.ubicacionInicial.latitude
-              ? _currentPosition!.latitude
-              : widget.ubicacionInicial.latitude,
-          _currentPosition!.longitude < widget.ubicacionInicial.longitude
-              ? _currentPosition!.longitude
-              : widget.ubicacionInicial.longitude,
-        ),
-        northeast: LatLng(
-          _currentPosition!.latitude > widget.ubicacionInicial.latitude
-              ? _currentPosition!.latitude
-              : widget.ubicacionInicial.latitude,
-          _currentPosition!.longitude > widget.ubicacionInicial.longitude
-              ? _currentPosition!.longitude
-              : widget.ubicacionInicial.longitude,
+  Future<void> _notificarLlegada() async {
+    if (_notificando || _currentPosition == null) return;
+
+    setState(() {
+      _notificando = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('solicitud')
+          .doc(widget.solicitudId)
+          .update({
+        'llegada_conductor': 'llego',
+        'timestamp_llegada': FieldValue.serverTimestamp(),
+        'estado': 'en destino',
+      });
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DestinoConductor(
+            ubicacionConductor: LatLng(
+              _currentPosition!.latitude,
+              _currentPosition!.longitude,
+            ),
+            ubicacionDestino: LatLng(
+              widget.ubicacionDestino.latitude,
+              widget.ubicacionDestino.longitude,
+            ),
+            solicitudId: widget.solicitudId,
+          ),
         ),
       );
-
-      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+    } catch (e) {
+      debugPrint("Error al notificar llegada: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error al notificar la llegada: $e")),
+        );
+        setState(() {
+          _notificando = false;
+        });
+      }
     }
   }
 
@@ -289,23 +247,63 @@ void _notificarLlegada() async {
               ),
               onMapCreated: (controller) {
                 _mapController = controller;
-                _ajustarCamara();
               },
               polylines: _polylines,
               markers: _markers,
             ),
           ),
           const SizedBox(height: 20),
-          Text("Cliente: $_nombreCliente",
-              style: const TextStyle(fontSize: 18)),
-          Text("📍 $_direccionCliente", style: const TextStyle(fontSize: 16)),
-          Text("⏳ Tiempo estimado: $_tiempoEstimado",
-              style: const TextStyle(fontSize: 16, color: Colors.green)),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _notificarLlegada,
-            child: const Text("Notificar llegada"),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 35,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage:
+                      const AssetImage('assets/images/default_avatar.png'),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "$_nombreCliente",
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "📍 $_direccionCliente",
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "⏳ Tiempo estimado: $_tiempoEstimado",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(height: 20),
+          _notificando
+              ? const CircularProgressIndicator()
+              : CustomButton(
+                  text: 'Ya llegué',
+                  onPressed: _notificarLlegada,
+                  width: 130,
+                  height: 50,
+                  fontSize: 16,
+                ),
         ],
       ),
     );
