@@ -6,12 +6,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="taxi_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
+        <!-- Actividad principal -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -30,12 +33,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Clave de API de Google Maps -->
+        <!-- API KEY de Google Maps -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyCZT4vsvNa5yn6QcAhM0kEEYlnRGY3QbX8" />
 
-        <!-- Versión de Flutter -->
+        <!-- Flutter Embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -49,9 +52,21 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- ✅ Soporte para notificaciones locales (en segundo plano o reinicio del sistema) -->
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+
+        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="true" />
     </application>
 
-    <!-- Required to query activities that can process text -->
+    <!-- Requerido para ciertas acciones del sistema -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
