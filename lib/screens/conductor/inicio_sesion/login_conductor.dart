@@ -5,7 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
-import 'package:taxi_app/screens/conductor/registro_conductor.dart';
+import 'package:taxi_app/screens/conductor/inicio_sesion/registro_conductor.dart';
 
 class LoginConductor extends StatefulWidget {
   const LoginConductor({super.key});

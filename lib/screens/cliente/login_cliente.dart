@@ -30,10 +30,9 @@ class _LoginClienteState extends State<LoginCliente> {
   void _verificarUsuarioLogueado() {
     final User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Guardar el token FCM
       saveUserToken(user.uid);
-      // Redirigir al mapa si el usuario ya está autenticado
       Future.microtask(() {
+        if (!mounted) return; // 👈 Solución
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MapaCliente()),
@@ -42,17 +41,16 @@ class _LoginClienteState extends State<LoginCliente> {
     }
   }
 
-  // Función para iniciar sesión
   Future<void> _iniciarSesion() async {
     if (_formKey.currentState!.validate()) {
       try {
-        // Verificar si el correo está registrado en la tabla "cliente"
         final QuerySnapshot result = await _firestore
             .collection('cliente')
             .where('correo', isEqualTo: _emailController.text.trim())
             .get();
 
         if (result.docs.isEmpty) {
+          if (!mounted) return;
           _showDialog("Error", "Este usuario no está permitido");
           return;
         }
@@ -65,6 +63,7 @@ class _LoginClienteState extends State<LoginCliente> {
 
         await saveUserToken(userCredential.user!.uid);
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Inicio de sesión exitoso")),
         );
@@ -74,6 +73,7 @@ class _LoginClienteState extends State<LoginCliente> {
           MaterialPageRoute(builder: (context) => const MapaCliente()),
         );
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error al iniciar sesión: $e")),
         );

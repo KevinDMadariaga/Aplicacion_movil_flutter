@@ -1,8 +1,12 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
+import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
+import 'package:firebase_storage/firebase_storage.dart'; // Para subir la imagen a Firebase Storage
+import 'package:image_picker/image_picker.dart'; // Para seleccionar la imagen
+import 'dart:io'; // Para trabajar con archivos locales
 
 class RegistroConductor extends StatefulWidget {
   const RegistroConductor({super.key});
@@ -23,6 +27,8 @@ class _RegistroConductorState extends State<RegistroConductor> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isPasswordVisible = false;
+  String? _profileImageUrl; // Para almacenar la URL de la foto de perfil
+  final ImagePicker _picker = ImagePicker(); // Instancia de ImagePicker
 
   // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
@@ -33,33 +39,77 @@ class _RegistroConductorState extends State<RegistroConductor> {
       "telefono": _telefonoController.text.trim(),
       "correo": _emailController.text.trim(),
       "contraseña": _passwordController.text.trim(),
+      "conectado": true, // Agregar el campo 'conectado' con valor 'true'
+      "profileImageUrl":
+          null, // Campo 'profileImageUrl' con valor 'null' inicialmente
     });
   }
 
-  // Función para registrar un nuevo usuario
+  // Función para seleccionar una imagen y subirla a Firebase Storage
+  Future<void> _pickAndUploadImage() async {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      try {
+        final file = File(pickedFile.path);
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('profile_images')
+            .child(FirebaseAuth.instance.currentUser!.uid + '.jpg');
+        final uploadTask = storageRef.putFile(file);
+        final snapshot = await uploadTask.whenComplete(() => {});
+        final downloadUrl = await snapshot.ref.getDownloadURL();
+
+        // Actualizar la URL de la imagen en Firestore
+        await FirebaseFirestore.instance
+            .collection('conductor')
+            .doc(FirebaseAuth.instance.currentUser!.uid)
+            .update({'profileImageUrl': downloadUrl});
+
+        setState(() {
+          _profileImageUrl = downloadUrl;
+        });
+      } catch (e) {
+        print('Error al subir la imagen: $e');
+      }
+    }
+  }
+
   Future<void> _registrarConductor() async {
     if (_formKey.currentState!.validate()) {
       try {
+        final signInMethods = await _auth
+            .fetchSignInMethodsForEmail(_emailController.text.trim());
+
+        if (signInMethods.isNotEmpty) {
+          _showDialog(
+              "Error", "Este correo ya está registrado. Intenta con otro.");
+          return;
+        }
+
         UserCredential userCredential =
             await _auth.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
+
         await _guardarDatosEnFirestore(userCredential);
 
-        // ignore: use_build_context_synchronously
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Registro exitoso")),
-        );
-        // ignore: use_build_context_synchronously
-        Navigator.pop(context); // Vuelve al login después de registrarse
+        // Mostrar mensaje de éxito en medio de la pantalla
+        _showSuccessMessage();
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          _showDialog(
+              "Error", "Este correo ya está registrado. Intenta con otro.");
+        } else {
+          _showDialog("Error", e.message ?? "Ocurrió un error inesperado.");
+        }
       } catch (e) {
-        _showDialog("Error", e.toString());
+        _showDialog("Error", "Ocurrió un error inesperado.");
       }
     }
   }
 
-// Mostrar un diálogo con mensajes
+  // Mostrar un diálogo con mensajes
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -76,11 +126,45 @@ class _RegistroConductorState extends State<RegistroConductor> {
     );
   }
 
-// Validaciones centralizadas
+  // Mostrar mensaje de éxito y redirigir
+  void _showSuccessMessage() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 50,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              "¡Registro exitoso!",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            const Text("Bienvenido al sistema."),
+          ],
+        ),
+      ),
+    );
+
+    // Después de un retraso de 2 segundos, se redirige a la pantalla de MapaConductor
+    Future.delayed(const Duration(seconds: 2), () {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+            builder: (context) =>
+                const MapaConductor()), // Asegúrate de que MapaConductor esté disponible
+      );
+    });
+  }
+
   String? _validateCorreo(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su correo";
     if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value))
-      // ignore: curly_braces_in_flow_control_structures
       return "Correo inválido";
     return null;
   }
@@ -88,7 +172,6 @@ class _RegistroConductorState extends State<RegistroConductor> {
   String? _validateTelefono(String? value) {
     if (value == null || value.isEmpty) return "Ingrese su número de teléfono";
     if (!RegExp(r'^\d{10}$').hasMatch(value))
-      // ignore: curly_braces_in_flow_control_structures
       return "Número inválido (10 dígitos)";
     return null;
   }
@@ -119,7 +202,7 @@ class _RegistroConductorState extends State<RegistroConductor> {
                 children: [
                   Image.asset(
                     'assets/img/taxi.png',
-                    width: 200.0, // Ancho en píxeles
+                    width: 200.0,
                     height: 170.0,
                   ),
 
@@ -152,6 +235,7 @@ class _RegistroConductorState extends State<RegistroConductor> {
                     validator: _validateTelefono,
                   ),
                   SizedBox(height: MediaQuery.of(context).size.height * 0.02),
+                  // Campo de Correo Electrónico
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -210,9 +294,9 @@ class _RegistroConductorState extends State<RegistroConductor> {
                   CustomButton(
                     text: 'Registrar',
                     onPressed: _registrarConductor,
-                    width: 100, // Ancho del botón
-                    height: 50, // Alto del botón
-                    fontSize: 16, // Tamaño de fuente del texto
+                    width: 100,
+                    height: 50,
+                    fontSize: 16,
                   ),
                 ],
               ),

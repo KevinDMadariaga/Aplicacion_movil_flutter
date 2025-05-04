@@ -1,16 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:geocoding/geocoding.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_place/google_place.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente_logica.dart';
 import 'package:taxi_app/screens/cliente/ruta_conductor_cliente.dart';
-import 'package:taxi_app/services/api_google.dart';
-import 'package:taxi_app/screens/home.dart';
+import 'package:diacritic/diacritic.dart'; // Importa el paquete diacritic
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+
 
 class MapaCliente extends StatefulWidget {
   const MapaCliente({super.key});
@@ -21,7 +22,6 @@ class MapaCliente extends StatefulWidget {
 
 class _MapaClienteState extends State<MapaCliente> {
   late GoogleMapController _mapController;
-  final GooglePlace _googlePlace = GooglePlace(ApiConfig.getGoogleMapsApiKey());
   LatLng? _userLocation;
   LatLng? _ultimaUbicacionSeleccionada;
   final Set<Marker> _markers = {};
@@ -69,7 +69,6 @@ class _MapaClienteState extends State<MapaCliente> {
   Future<void> _mostrarCuadroBusqueda() async {
     final resultado = await mostrarBusquedaUbicacion(
       context: context,
-      googlePlace: _googlePlace,
       userLocation: _userLocation,
     );
 
@@ -187,6 +186,139 @@ class _MapaClienteState extends State<MapaCliente> {
     });
   }
 
+  // Normaliza texto (elimina tildes y convierte a minúsculas)
+  String normalizarTexto(String texto) {
+    String textoSinTildes = removeDiacritics(texto);
+    return textoSinTildes.toLowerCase();
+  }
+
+  Future<UbicacionResultado?> mostrarBusquedaUbicacion({
+    required BuildContext context,
+    required LatLng? userLocation,
+  }) async {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
+    final TextEditingController searchController = TextEditingController();
+
+    return await showModalBottomSheet<UbicacionResultado>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateModal) {
+            void buscarUbicaciones(String query) async {
+              if (query.isEmpty) {
+                setStateModal(() => sugerencias = []);
+                return;
+              }
+              // Normalizamos el texto de la búsqueda
+              String queryNormalizada = normalizarTexto(query);
+
+              // Obtenemos las ubicaciones de Firebase y las filtramos
+              final snapshot = await FirebaseFirestore.instance
+                  .collection('ubicaciones')
+                  .get();
+
+              final filtered = snapshot.docs.where((lugar) {
+                String nombreNormalizado = normalizarTexto(lugar['nombre']);
+                return nombreNormalizado.contains(queryNormalizada);
+              }).toList();
+
+              setStateModal(() => sugerencias = filtered);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 40,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.place, size: 40, color: Colors.blueAccent),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '¿A dónde quieres ir?',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      onChanged: buscarUbicaciones,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        hintText: "Buscar dirección...",
+                        prefixIcon:
+                            const Icon(Icons.search, color: Colors.blueAccent),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: const BorderSide(
+                              color: Colors.blueAccent, width: 2.0),
+                          borderRadius: BorderRadius.circular(12.0),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide:
+                              const BorderSide(color: Colors.grey, width: 1.0),
+                          borderRadius: BorderRadius.circular(12.0),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (sugerencias.isNotEmpty)
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: sugerencias.length,
+                          itemBuilder: (context, index) {
+                            final lugar = sugerencias[index];
+                            final nombre = lugar['nombre'];
+                            final GeoPoint geopoint = lugar['ubicacion'];
+
+                            return ListTile(
+                              leading: const Icon(Icons.location_on,
+                                  color: Colors.blue),
+                              title: Text(nombre ?? ''),
+                              onTap: () {
+                                Navigator.pop(
+                                  context,
+                                  UbicacionResultado(
+                                    location: LatLng(
+                                        geopoint.latitude, geopoint.longitude),
+                                    direccion: nombre,
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      )
+                    else if (searchController.text.isNotEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text(
+                          "No se encontraron resultados",
+                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -194,7 +326,9 @@ class _MapaClienteState extends State<MapaCliente> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
-          backgroundColor: Colores.amarillo, title: const Text("Mapa Cliente")),
+        backgroundColor: Colores.amarillo,
+        title: const Text("Mapa Cliente"),
+      ),
       drawer: crearDrawerUsuario(user, context),
       body: Stack(
         children: [
@@ -226,9 +360,48 @@ class _MapaClienteState extends State<MapaCliente> {
                 height: 50,
                 fontSize: 16,
               ),
-            )
+            ),
         ],
       ),
     );
   }
+
+  Future<List<LatLng>> obtenerRutaPorCalles(LatLng origen, LatLng destino) async {
+  final url = Uri.parse(
+    'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+  );
+
+  try {
+    final response = await http.get(
+      url,
+      headers: {
+        'User-Agent': 'FlutterApp/1.0',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['routes'].isNotEmpty) {
+        final coordinates = data['routes'][0]['geometry']['coordinates'];
+        return coordinates
+            .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+            .toList();
+      }
+    } else {
+      debugPrint("HTTP error: ${response.statusCode}");
+    }
+  } on SocketException catch (e) {
+    debugPrint("No se pudo conectar con OSRM: $e");
+  } on TimeoutException {
+    debugPrint("Tiempo de espera agotado al conectar con OSRM");
+  } on http.ClientException catch (e) {
+    debugPrint("ClientException: $e");
+  } catch (e) {
+    debugPrint("Error inesperado: $e");
+  }
+
+  return [];
+}
+
 }

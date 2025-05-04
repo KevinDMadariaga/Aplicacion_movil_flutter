@@ -136,7 +136,8 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
         CustomButton(
           text: "Cancelar",
           onPressed: () {
-            Navigator.of(context, rootNavigator: true).pop(); // 🔴 Cierra el diálogo
+            Navigator.of(context, rootNavigator: true)
+                .pop(); // 🔴 Cierra el diálogo
             onCancelar(); // 🟢 Ejecuta la lógica de cancelación adicional
           },
           width: 130,
@@ -147,7 +148,6 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
     ),
   );
 }
-
 
 Widget posicionarInfoUbicacion(
   String direccionInicial,
@@ -253,11 +253,10 @@ Future<String?> crearSolicitudFirebase(
 
 Future<UbicacionResultado?> mostrarBusquedaUbicacion({
   required BuildContext context,
-  required GooglePlace googlePlace,
   required LatLng? userLocation,
 }) async {
-  List<AutocompletePrediction> predictions = [];
-  final controller = TextEditingController();
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
+  final TextEditingController searchController = TextEditingController();
 
   return await showModalBottomSheet<UbicacionResultado>(
     context: context,
@@ -267,119 +266,102 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
     ),
     builder: (context) {
       return StatefulBuilder(
-        builder: (context, setModalState) {
-          void buscar(String input) async {
-            if (input.isEmpty) return;
-            final result = await googlePlace.autocomplete.get(
-              input,
-              location: userLocation != null
-                  ? LatLon(userLocation.latitude, userLocation.longitude)
-                  : null,
-              radius: 10000,
-              strictbounds: true,
-              components: [Component("country", "co")],
-            );
-            setModalState(() => predictions = result?.predictions ?? []);
+        builder: (context, setStateModal) {
+          void buscarUbicaciones(String query) async {
+            if (query.isEmpty) {
+              setStateModal(() => sugerencias = []);
+              return;
+            }
+            final snapshot = await FirebaseFirestore.instance
+                .collection('ubicaciones')
+                .where('nombre', isGreaterThanOrEqualTo: query)
+                .where('nombre', isLessThanOrEqualTo: query + '\uf8ff')
+                .get();
+
+            setStateModal(() => sugerencias = snapshot.docs);
           }
 
           return SafeArea(
-            child: Stack(
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top: 40,
-                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 40,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.place, size: 40, color: Colors.blueAccent),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '¿A dónde quieres ir?',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.place,
-                          size: 40, color: Colors.blueAccent),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '¿A dónde quieres ir?',
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: searchController,
+                    autofocus: true,
+                    onChanged: buscarUbicaciones,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      hintText: "Buscar dirección...",
+                      prefixIcon:
+                          const Icon(Icons.search, color: Colors.blueAccent),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(
+                            color: Colors.blueAccent, width: 2.0),
+                        borderRadius: BorderRadius.circular(12.0),
                       ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: controller,
-                        autofocus: true,
-                        onChanged: buscar,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: Colors.white,
-                          hintText: "Buscar dirección...",
-                          prefixIcon: const Icon(Icons.search,
-                              color: Colors.blueAccent),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                                color: Colors.blueAccent, width: 2.0),
-                            borderRadius: BorderRadius.circular(12.0),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                                color: Colors.grey, width: 1.0),
-                            borderRadius: BorderRadius.circular(12.0),
-                          ),
-                        ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide:
+                            const BorderSide(color: Colors.grey, width: 1.0),
+                        borderRadius: BorderRadius.circular(12.0),
                       ),
-                      const SizedBox(height: 12),
-                      if (predictions.isNotEmpty)
-                        Flexible(
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: predictions.length,
-                            itemBuilder: (context, index) {
-                              final p = predictions[index];
-                              return ListTile(
-                                leading: const Icon(Icons.location_on,
-                                    color: Colors.blue),
-                                title: Text(p.description ?? ""),
-                                onTap: () async {
-                                  final details =
-                                      await googlePlace.details.get(p.placeId!);
-                                  if (details?.result?.geometry?.location !=
-                                      null) {
-                                    final l =
-                                        details!.result!.geometry!.location!;
-                                    final dir =
-                                        details.result!.formattedAddress ??
-                                            "Dirección desconocida";
-                                    Navigator.pop(
-                                      context,
-                                      UbicacionResultado(
-                                        location: LatLng(l.lat!, l.lng!),
-                                        direccion: dir,
-                                      ),
-                                    );
-                                  }
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-                // Botón de cerrar con estilo moderno
-                Positioned(
-                  top: 40,
-                  right: 12,
-                  child: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: Colors.grey
-                        .shade200, // Puedes cambiarlo a Colors.black si prefieres oscuro
-                    child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.black),
-                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  if (sugerencias.isNotEmpty)
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: sugerencias.length,
+                        itemBuilder: (context, index) {
+                          final lugar = sugerencias[index];
+                          final nombre = lugar['nombre'];
+                          final GeoPoint geopoint = lugar['ubicacion'];
+
+                          return ListTile(
+                            leading: const Icon(Icons.location_on,
+                                color: Colors.blue),
+                            title: Text(nombre ?? ''),
+                            onTap: () {
+                              Navigator.pop(
+                                context,
+                                UbicacionResultado(
+                                  location: LatLng(
+                                      geopoint.latitude, geopoint.longitude),
+                                  direccion: nombre,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    )
+                  else if (searchController.text.isNotEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text(
+                        "No se encontraron resultados",
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  const SizedBox(height: 32),
+                ],
+              ),
             ),
           );
         },

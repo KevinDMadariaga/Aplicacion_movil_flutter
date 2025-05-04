@@ -1,7 +1,8 @@
-import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:taxi_app/screens/home.dart';
 
 class ResumenConductor extends StatelessWidget {
   final String solicitudId;
@@ -9,13 +10,21 @@ class ResumenConductor extends StatelessWidget {
   const ResumenConductor({Key? key, required this.solicitudId})
       : super(key: key);
 
+  // Formateo simple para mostrar hora Bogotá
+  String formatoHoraBogota(Timestamp timestamp) {
+    final fecha = timestamp.toDate().toUtc().subtract(const Duration(hours: 5));
+    final dia = fecha.day.toString().padLeft(2, '0');
+    final mes = fecha.month.toString().padLeft(2, '0');
+    final anio = fecha.year;
+    final hora = fecha.hour.toString().padLeft(2, '0');
+    final minuto = fecha.minute.toString().padLeft(2, '0');
+    return "$dia/$mes/$anio $hora:$minuto";
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Resumen del Servicio"),
-        backgroundColor: Colors.blueAccent,
-      ),
+      backgroundColor: Colors.white,
       body: FutureBuilder<DocumentSnapshot>(
         future: FirebaseFirestore.instance
             .collection('solicitud')
@@ -26,22 +35,19 @@ class ResumenConductor extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError) {
+          if (snapshot.hasError ||
+              !snapshot.hasData ||
+              !snapshot.data!.exists) {
             return const Center(child: Text("Error al cargar los datos"));
-          }
-
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("No se encontraron datos"));
           }
 
           var solicitudData = snapshot.data!;
           var ubicacionInicial = solicitudData['ubicacion_inicial'];
-          var direccionSeleccionada = solicitudData[
-              'direccion_seleccionada']; // Extraemos la direccion seleccionada
-          var clienteId =
-              solicitudData['clienteId']; // Obtener el ID del cliente
+          var direccionSeleccionada = solicitudData['direccion_seleccionada'];
+          var clienteId = solicitudData['clienteId'];
+          var horaInicio = solicitudData['hora_aceptacion'] as Timestamp?;
+          var horaFin = solicitudData['fecha_terminacion'] as Timestamp?;
 
-          // Obtener el nombre del cliente
           return FutureBuilder<DocumentSnapshot>(
             future: FirebaseFirestore.instance
                 .collection('cliente')
@@ -52,21 +58,16 @@ class ResumenConductor extends StatelessWidget {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              if (clienteSnapshot.hasError) {
+              if (clienteSnapshot.hasError ||
+                  !clienteSnapshot.hasData ||
+                  !clienteSnapshot.data!.exists) {
                 return const Center(
                     child: Text("Error al cargar los datos del cliente"));
               }
 
-              if (!clienteSnapshot.hasData || !clienteSnapshot.data!.exists) {
-                return const Center(
-                    child: Text("No se encontraron datos del cliente"));
-              }
-
               var clienteData = clienteSnapshot.data!;
-              var nombreCliente =
-                  clienteData['nombre']; // Obtener el nombre del cliente
+              var nombreCliente = clienteData['nombre'];
 
-              // Convertir las coordenadas a dirección usando geocoding
               return FutureBuilder<List<Placemark>>(
                 future: placemarkFromCoordinates(
                   ubicacionInicial.latitude,
@@ -78,12 +79,8 @@ class ResumenConductor extends StatelessWidget {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  if (placemarksSnapshot.hasError) {
-                    return const Center(
-                        child: Text("Error al obtener la dirección"));
-                  }
-
-                  if (!placemarksSnapshot.hasData ||
+                  if (placemarksSnapshot.hasError ||
+                      !placemarksSnapshot.hasData ||
                       placemarksSnapshot.data!.isEmpty) {
                     return const Center(child: Text("Dirección no disponible"));
                   }
@@ -93,63 +90,132 @@ class ResumenConductor extends StatelessWidget {
                       "${placemark.street}, ${placemark.locality}, ${placemark.country}";
 
                   return Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(24.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const SizedBox(height: 40),
                         const Text(
                           "Resumen del Servicio",
                           style: TextStyle(
-                            fontSize: 24,
+                            fontSize: 26,
                             fontWeight: FontWeight.bold,
-                            color: Colors.blueAccent,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                        Text(
+                          "👤 Cliente:",
+                          style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.w500),
+                        ),
+                        Text(
+                          nombreCliente.toString().toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
                           ),
                         ),
                         const SizedBox(height: 20),
-                        Text(
-                          "👤 Cliente: ",
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          "$nombreCliente",
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 20),
-                        // Cambié de "Punto de Recogida" a texto
-                        Text(
+                        const Text(
                           "📍 Dirección de Recogida:",
-                          style: const TextStyle(fontSize: 16),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
                         ),
                         Text(
                           direccionRecogida,
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          "🏁 Dirección Seleccionada: ",
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        Text(
-                          direccionSeleccionada,
-                          style: const TextStyle(fontSize: 16),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 20),
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.pushReplacementNamed(context, '/home');
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            textStyle: const TextStyle(
+                        const Text(
+                          "🏁 Dirección Seleccionada:",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          direccionSeleccionada ?? "No disponible",
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        if (horaInicio != null) ...[
+                          const Text(
+                            "🕓 Hora de Inicio:",
+                            style: TextStyle(
                               fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            formatoHoraBogota(horaInicio),
+                            style: const TextStyle(
+                              fontSize: 17,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          child: const Text("Volver a Inicio"),
+                        ],
+                        const SizedBox(height: 10),
+                        if (horaFin != null) ...[
+                          const Text(
+                            "🕓 Hora de Finalización:",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            formatoHoraBogota(horaFin),
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                        const Spacer(),
+                        Center(
+                          child: SizedBox(
+                            width: MediaQuery.of(context).size.width * 0.8,
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const home()),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFFC107),
+                                foregroundColor: Colors.black,
+                                textStyle: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text("Volver a Inicio"),
+                            ),
+                          ),
                         ),
+                        const SizedBox(height: 30),
                       ],
                     ),
                   );

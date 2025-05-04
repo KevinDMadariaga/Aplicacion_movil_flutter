@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/login_cliente.dart';
-import 'package:taxi_app/screens/conductor/login_conductor.dart';
+import 'package:taxi_app/screens/conductor/inicio_sesion/login_conductor.dart';
 
 // ignore: camel_case_types
 class home extends StatelessWidget {

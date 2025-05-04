@@ -1,6 +1,6 @@
-// ... [importaciones]
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,7 +8,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
-import 'package:taxi_app/services/api_google.dart';
+import 'package:taxi_app/screens/cliente/resumen_cliente.dart';
 import 'package:taxi_app/utils/notificaciones.dart';
 
 class ClienteRecogida extends StatefulWidget {
@@ -22,7 +22,8 @@ class ClienteRecogida extends StatefulWidget {
 
 class _ClienteRecogidaState extends State<ClienteRecogida> {
   late GoogleMapController _mapController;
-  LatLng? _ubicacionCliente;
+  LatLng? _ubicacionInicial;
+  LatLng? _ubicacionDestino;
   LatLng? _ubicacionConductor;
   String _nombreConductor = "DESCONOCIDO";
   String _direccionConductor = "Obteniendo dirección...";
@@ -32,9 +33,12 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   double _progresoActual = 0.0;
   double? _distanciaTotal;
   bool _notificado = false;
+  bool _faseDos = false;
   String? _conductorId;
-  Timer? _simulacionTimer;
   Marker? _markerConductor;
+
+  StreamSubscription<DocumentSnapshot>? _solicitudListener;
+  StreamSubscription<DocumentSnapshot>? _conductorListener;
 
   @override
   void initState() {
@@ -44,29 +48,47 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
   @override
   void dispose() {
-    _simulacionTimer?.cancel();
+    _solicitudListener?.cancel();
+    _conductorListener?.cancel();
     super.dispose();
   }
 
   void _escucharSolicitud() {
-    FirebaseFirestore.instance
+    _solicitudListener = FirebaseFirestore.instance
         .collection('solicitud')
         .doc(widget.solicitudId)
         .snapshots()
         .listen((doc) async {
-      if (!doc.exists) return;
+      if (!mounted || !doc.exists) return;
       final data = doc.data()!;
-      final conductorId = data['conductorId'];
-      final ubicacionCliente = data['ubicacion_inicial'];
+      final nuevoEstado = data['estado'];
 
-      setState(() {
-        _ubicacionCliente =
-            LatLng(ubicacionCliente.latitude, ubicacionCliente.longitude);
-        _conductorId = conductorId;
-      });
+      if (nuevoEstado == 'terminado') {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => ResumenSolicitud(solicitudId: widget.solicitudId),
+        ));
+        return;
+      }
 
-      _obtenerDatosConductor(conductorId);
-      _escucharUbicacionConductor(conductorId);
+      final nuevaFaseDos = nuevoEstado == 'llego';
+      if (nuevaFaseDos != _faseDos && mounted) {
+        setState(() {
+          _faseDos = nuevaFaseDos;
+          _distanciaTotal = null;
+          _progresoActual = 0.0;
+          _progreso = 0.5;
+          _notificado = false;
+        });
+      }
+
+      _ubicacionInicial = LatLng(data['ubicacion_inicial'].latitude,
+          data['ubicacion_inicial'].longitude);
+      _ubicacionDestino = LatLng(data['ubicacion_seleccionada'].latitude,
+          data['ubicacion_seleccionada'].longitude);
+      _conductorId = data['conductorId'];
+      await _obtenerDatosConductor(_conductorId!);
+      _escucharUbicacionConductor(_conductorId!);
     });
   }
 
@@ -75,7 +97,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         .collection('conductor')
         .doc(conductorId)
         .get();
-    if (doc.exists) {
+    if (doc.exists && mounted) {
       setState(() {
         _nombreConductor = doc['nombre'].toString().toUpperCase();
       });
@@ -83,20 +105,20 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   void _escucharUbicacionConductor(String conductorId) {
-    FirebaseFirestore.instance
+    _conductorListener = FirebaseFirestore.instance
         .collection('conductor')
         .doc(conductorId)
         .snapshots()
         .listen((doc) async {
-      if (doc.exists && doc.data()!.containsKey('ubicacion')) {
-        GeoPoint geo = doc['ubicacion'];
-        LatLng nuevaUbicacion = LatLng(geo.latitude, geo.longitude);
-        _animarMovimientoConductor(nuevaUbicacion);
-        _ubicacionConductor = nuevaUbicacion;
-        await _obtenerDireccionConductor();
-        await _actualizarMapa();
-        _actualizarProgreso();
-      }
+      if (!mounted || !doc.exists || !doc.data()!.containsKey('ubicacion'))
+        return;
+      GeoPoint geo = doc['ubicacion'];
+      LatLng nuevaUbicacion = LatLng(geo.latitude, geo.longitude);
+      _ubicacionConductor = nuevaUbicacion;
+      _animarMovimientoConductor(nuevaUbicacion);
+      await _obtenerDireccionConductor();
+      await _actualizarMapa();
+      _actualizarProgreso();
     });
   }
 
@@ -109,26 +131,28 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         infoWindow: InfoWindow(title: _nombreConductor),
       );
       _markers.add(_markerConductor!);
+      _mapController.animateCamera(CameraUpdate.newLatLng(nuevaPos));
     } else {
-      final marcadorAnterior = _markerConductor!;
-      final LatLng inicio = marcadorAnterior.position;
-
+      final anterior = _markerConductor!;
       double t = 0.0;
       Timer.periodic(const Duration(milliseconds: 16), (timer) {
-        t += 0.05;
-        if (t >= 1.0) {
+        if (!mounted) {
           timer.cancel();
-          t = 1.0;
+          return;
         }
 
-        final lat = inicio.latitude + (nuevaPos.latitude - inicio.latitude) * t;
-        final lng =
-            inicio.longitude + (nuevaPos.longitude - inicio.longitude) * t;
+        t += 0.05;
+        if (t >= 1.0) timer.cancel();
 
+        final lat = anterior.position.latitude +
+            (nuevaPos.latitude - anterior.position.latitude) * t;
+        final lng = anterior.position.longitude +
+            (nuevaPos.longitude - anterior.position.longitude) * t;
+        final pos = LatLng(lat, lng);
+
+        if (!mounted) return;
         setState(() {
-          _markerConductor = marcadorAnterior.copyWith(
-            positionParam: LatLng(lat, lng),
-          );
+          _markerConductor = anterior.copyWith(positionParam: pos);
           _markers.removeWhere((m) => m.markerId.value == "conductor");
           _markers.add(_markerConductor!);
         });
@@ -142,7 +166,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         _ubicacionConductor!.latitude,
         _ubicacionConductor!.longitude,
       );
-      if (placemarks.isNotEmpty) {
+      if (placemarks.isNotEmpty && mounted) {
         final lugar = placemarks.first;
         setState(() {
           _direccionConductor = "${lugar.street}, ${lugar.locality}";
@@ -152,41 +176,42 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   Future<void> _actualizarMapa() async {
-    if (_ubicacionCliente == null || _ubicacionConductor == null) return;
+    if (_ubicacionConductor == null) return;
+    final destino = _faseDos ? _ubicacionDestino : _ubicacionInicial;
+    final ruta = await obtenerRutaPorCalles(_ubicacionConductor!, destino!);
 
-    final ruta =
-        await obtenerRutaPorCalles(_ubicacionConductor!, _ubicacionCliente!);
-
+    if (!mounted) return;
     setState(() {
-      _markers.add(
+      _markers = {
         Marker(
-          markerId: const MarkerId("cliente"),
-          position: _ubicacionCliente!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          infoWindow: const InfoWindow(title: "Cliente"),
+          markerId: MarkerId(_faseDos ? "destino" : "cliente"),
+          position: destino,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed),
         ),
-      );
+        if (_markerConductor != null) _markerConductor!,
+      };
       _polylines = {
         Polyline(
-          polylineId: const PolylineId("ruta_conductor_cliente"),
-          color: Colors.blueAccent,
+          polylineId: const PolylineId("ruta"),
+          color: const Color.fromARGB(255, 255, 251, 0),
           width: 5,
           points: ruta,
-        )
+        ),
       };
     });
 
     final bounds = LatLngBounds(
       southwest: LatLng(
-        [_ubicacionConductor!.latitude, _ubicacionCliente!.latitude]
+        [_ubicacionConductor!.latitude, destino.latitude]
             .reduce((a, b) => a < b ? a : b),
-        [_ubicacionConductor!.longitude, _ubicacionCliente!.longitude]
+        [_ubicacionConductor!.longitude, destino.longitude]
             .reduce((a, b) => a < b ? a : b),
       ),
       northeast: LatLng(
-        [_ubicacionConductor!.latitude, _ubicacionCliente!.latitude]
+        [_ubicacionConductor!.latitude, destino.latitude]
             .reduce((a, b) => a > b ? a : b),
-        [_ubicacionConductor!.longitude, _ubicacionCliente!.longitude]
+        [_ubicacionConductor!.longitude, destino.longitude]
             .reduce((a, b) => a > b ? a : b),
       ),
     );
@@ -195,28 +220,30 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   void _actualizarProgreso() {
-    if (_ubicacionCliente == null || _ubicacionConductor == null) return;
-
-    double distanciaActual = Geolocator.distanceBetween(
+    if (_ubicacionConductor == null) return;
+    final destino = _faseDos ? _ubicacionDestino : _ubicacionInicial;
+    final distanciaActual = Geolocator.distanceBetween(
       _ubicacionConductor!.latitude,
       _ubicacionConductor!.longitude,
-      _ubicacionCliente!.latitude,
-      _ubicacionCliente!.longitude,
+      destino!.latitude,
+      destino.longitude,
     );
 
     _distanciaTotal ??= distanciaActual;
-
     double nuevoProgreso = 1.0 - (distanciaActual / (_distanciaTotal! + 1));
     nuevoProgreso = nuevoProgreso.clamp(0.0, 1.0);
 
-    if (!_notificado && nuevoProgreso >= 0.98) {
+    if (!_notificado && !_faseDos && nuevoProgreso >= 0.95) {
       _notificado = true;
       _mostrarNotificacionDeLlegada();
     }
 
     _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
+
+    if (!mounted) return;
     setState(() {
-      _progreso = _progresoActual;
+      _progreso =
+          _faseDos ? 0.5 + (_progresoActual * 0.5) : _progresoActual * 0.5;
     });
   }
 
@@ -228,43 +255,9 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     );
   }
 
-  void _iniciarSimulacion() {
-    _simulacionTimer?.cancel();
-    _simulacionTimer =
-        Timer.periodic(const Duration(milliseconds: 1000), (_) async {
-      if (_conductorId == null ||
-          _ubicacionConductor == null ||
-          _ubicacionCliente == null) return;
-
-      final deltaLat =
-          (_ubicacionCliente!.latitude - _ubicacionConductor!.latitude) * 0.1;
-      final deltaLng =
-          (_ubicacionCliente!.longitude - _ubicacionConductor!.longitude) * 0.1;
-
-      final nuevaUbicacion = LatLng(
-        _ubicacionConductor!.latitude + deltaLat,
-        _ubicacionConductor!.longitude + deltaLng,
-      );
-
-      await FirebaseFirestore.instance
-          .collection('conductor')
-          .doc(_conductorId)
-          .update({
-        'ubicacion':
-            GeoPoint(nuevaUbicacion.latitude, nuevaUbicacion.longitude),
-      });
-
-      if ((deltaLat.abs() < 0.0001 && deltaLng.abs() < 0.0001) ||
-          _progreso >= 0.98) {
-        _simulacionTimer?.cancel();
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Tu conductor en camino")),
       body: Column(
         children: [
           Expanded(
@@ -311,7 +304,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const Text("🛣️ Progreso de llegada:",
+                  const Text("🛣️ Progreso del viaje:",
                       style: TextStyle(fontWeight: FontWeight.bold)),
                   LinearPercentIndicator(
                     lineHeight: 14.0,
@@ -319,16 +312,6 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                     barRadius: const Radius.circular(10),
                     progressColor: Colors.green,
                     backgroundColor: Colors.grey[300]!,
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: _iniciarSimulacion,
-                      icon: const Icon(Icons.directions_run),
-                      label: const Text("Simular Movimiento"),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent),
-                    ),
                   ),
                 ],
               ),
@@ -341,48 +324,32 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
   Future<List<LatLng>> obtenerRutaPorCalles(
       LatLng origen, LatLng destino) async {
-    final apiKey = ApiConfig.getGoogleMapsApiKey();
-    final url = Uri.parse(
-        'https://maps.googleapis.com/maps/api/directions/json?origin=${origen.latitude},${origen.longitude}&destination=${destino.latitude},${destino.longitude}&mode=driving&key=$apiKey');
+    try {
+      final url = Uri.parse(
+        'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+      );
 
-    final response = await http.get(url);
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['routes'].isNotEmpty) {
-        final polyline = data['routes'][0]['overview_polyline']['points'];
-        return decodePolyline(polyline);
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'];
+          return coordinates
+              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+              .toList();
+        }
+      } else {
+        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
       }
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on SocketException {
+      debugPrint("Error de red: no se pudo conectar con OSRM");
+    } catch (e) {
+      debugPrint("Error inesperado: $e");
     }
+
     return [];
-  }
-
-  List<LatLng> decodePolyline(String encoded) {
-    List<LatLng> polyline = [];
-    int index = 0, lat = 0, lng = 0;
-
-    while (index < encoded.length) {
-      int b, shift = 0, result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      int dlat = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
-      lat += dlat;
-
-      shift = 0;
-      result = 0;
-      do {
-        b = encoded.codeUnitAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      int dlng = (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
-      lng += dlng;
-
-      polyline.add(LatLng(lat / 1e5, lng / 1e5));
-    }
-
-    return polyline;
   }
 }
