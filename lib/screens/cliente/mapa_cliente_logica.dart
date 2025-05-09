@@ -4,12 +4,12 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_place/google_place.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/services/api_google.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UbicacionResultado {
   final LatLng? location;
@@ -104,11 +104,43 @@ Widget crearDrawerUsuario(User? user, BuildContext context) {
       padding: EdgeInsets.zero,
       children: <Widget>[
         DrawerHeader(
-          decoration: BoxDecoration(color: Colores.amarillo),
-          child: Text(
-            'Bienvenido, ${user?.email ?? 'Usuario'}',
-            style: const TextStyle(
-                color: Colors.black, fontSize: 24, fontWeight: FontWeight.bold),
+          decoration: BoxDecoration(color: Colors.amber),
+          child: FutureBuilder<DocumentSnapshot>(
+            future: FirebaseFirestore.instance
+                .collection('cliente') // ✅ coleccion correcta para clientes
+                .doc(user?.uid)
+                .get(),
+            builder: (context, snapshot) {
+              String nombre = 'USUARIO';
+
+              if (snapshot.hasData && snapshot.data!.exists) {
+                final data = snapshot.data!.data() as Map<String, dynamic>;
+                nombre = data['nombre']?.toUpperCase() ?? 'USUARIO';
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const CircleAvatar(
+                    radius: 30,
+                    backgroundColor: Colors.white,
+                    child: Icon(Icons.person, color: Colors.grey, size: 32),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      nombre,
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
         ListTile(
@@ -116,6 +148,10 @@ Widget crearDrawerUsuario(User? user, BuildContext context) {
           title: const Text('Cerrar Sesión'),
           onTap: () async {
             await FirebaseAuth.instance.signOut();
+
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.clear();
+
             Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
           },
         ),
@@ -123,6 +159,7 @@ Widget crearDrawerUsuario(User? user, BuildContext context) {
     ),
   );
 }
+
 
 Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
   return AlertDialog(
@@ -136,8 +173,7 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
         CustomButton(
           text: "Cancelar",
           onPressed: () {
-            Navigator.of(context, rootNavigator: true)
-                .pop(); // 🔴 Cierra el diálogo
+            Navigator.of(context, rootNavigator: true).pop(); // 🔴 Cierra el diálogo
             onCancelar(); // 🟢 Ejecuta la lógica de cancelación adicional
           },
           width: 130,
@@ -148,6 +184,7 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
     ),
   );
 }
+
 
 Widget posicionarInfoUbicacion(
   String direccionInicial,
@@ -255,16 +292,16 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
   required BuildContext context,
   required LatLng? userLocation,
 }) async {
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
+List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
   final TextEditingController searchController = TextEditingController();
 
-  return await showModalBottomSheet<UbicacionResultado>(
+ return await showModalBottomSheet<UbicacionResultado>(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
     ),
-    builder: (context) {
+builder: (context) {
       return StatefulBuilder(
         builder: (context, setStateModal) {
           void buscarUbicaciones(String query) async {
@@ -289,16 +326,17 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
                 top: 40,
                 bottom: MediaQuery.of(context).viewInsets.bottom + 16,
               ),
-              child: Column(
+                  child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.place, size: 40, color: Colors.blueAccent),
                   const SizedBox(height: 8),
                   const Text(
                     '¿A dónde quieres ir?',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 16),
+                      const SizedBox(height: 16),
                   TextField(
                     controller: searchController,
                     autofocus: true,
@@ -307,21 +345,21 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
                       filled: true,
                       fillColor: Colors.white,
                       hintText: "Buscar dirección...",
-                      prefixIcon:
-                          const Icon(Icons.search, color: Colors.blueAccent),
+                      prefixIcon: const Icon(Icons.search,
+                          color: Colors.blueAccent),
                       focusedBorder: OutlineInputBorder(
                         borderSide: const BorderSide(
                             color: Colors.blueAccent, width: 2.0),
                         borderRadius: BorderRadius.circular(12.0),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide:
-                            const BorderSide(color: Colors.grey, width: 1.0),
+                        enabledBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(
+                            color: Colors.grey, width: 1.0),
                         borderRadius: BorderRadius.circular(12.0),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                     const SizedBox(height: 12),
                   if (sugerencias.isNotEmpty)
                     Flexible(
                       child: ListView.builder(
@@ -331,8 +369,9 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
                           final lugar = sugerencias[index];
                           final nombre = lugar['nombre'];
                           final GeoPoint geopoint = lugar['ubicacion'];
+                          
 
-                          return ListTile(
+                              return ListTile(
                             leading: const Icon(Icons.location_on,
                                 color: Colors.blue),
                             title: Text(nombre ?? ''),

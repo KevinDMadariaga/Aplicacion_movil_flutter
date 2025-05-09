@@ -142,12 +142,13 @@ class _MapaConductorState extends State<MapaConductor> {
                       fontSize: 20, fontWeight: FontWeight.bold);
 
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Row(
+                    return Row(
                       children: [
-                        CircleAvatar(
-                            radius: 30, child: CircularProgressIndicator()),
-                        SizedBox(width: 16),
-                        Text("Cargando...", style: TextStyle(fontSize: 20)),
+                        const CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Colors.grey, // Círculo vacío
+                        ),
+                        const SizedBox(width: 16),
                       ],
                     );
                   }
@@ -169,9 +170,18 @@ class _MapaConductorState extends State<MapaConductor> {
                       conductorData['nombre']?.toUpperCase() ?? "SIN NOMBRE";
 
                   return Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const SizedBox(width: 8),
-                      Expanded(child: Text(conductorName, style: style)),
+                      const CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.white,
+                        child: Icon(Icons.person, color: Colors.grey, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(conductorName,
+                            style: style, overflow: TextOverflow.ellipsis),
+                      ),
                     ],
                   );
                 },

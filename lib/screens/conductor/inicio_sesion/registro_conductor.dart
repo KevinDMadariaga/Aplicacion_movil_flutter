@@ -4,8 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
-import 'package:firebase_storage/firebase_storage.dart'; // Para subir la imagen a Firebase Storage
-import 'package:image_picker/image_picker.dart'; // Para seleccionar la imagen
 import 'dart:io'; // Para trabajar con archivos locales
 
 class RegistroConductor extends StatefulWidget {
@@ -27,8 +25,6 @@ class _RegistroConductorState extends State<RegistroConductor> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isPasswordVisible = false;
-  String? _profileImageUrl; // Para almacenar la URL de la foto de perfil
-  final ImagePicker _picker = ImagePicker(); // Instancia de ImagePicker
 
   // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
@@ -40,39 +36,9 @@ class _RegistroConductorState extends State<RegistroConductor> {
       "correo": _emailController.text.trim(),
       "contraseña": _passwordController.text.trim(),
       "conectado": true, // Agregar el campo 'conectado' con valor 'true'
-      "profileImageUrl":
-          null, // Campo 'profileImageUrl' con valor 'null' inicialmente
     });
   }
 
-  // Función para seleccionar una imagen y subirla a Firebase Storage
-  Future<void> _pickAndUploadImage() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      try {
-        final file = File(pickedFile.path);
-        final storageRef = FirebaseStorage.instance
-            .ref()
-            .child('profile_images')
-            .child(FirebaseAuth.instance.currentUser!.uid + '.jpg');
-        final uploadTask = storageRef.putFile(file);
-        final snapshot = await uploadTask.whenComplete(() => {});
-        final downloadUrl = await snapshot.ref.getDownloadURL();
-
-        // Actualizar la URL de la imagen en Firestore
-        await FirebaseFirestore.instance
-            .collection('conductor')
-            .doc(FirebaseAuth.instance.currentUser!.uid)
-            .update({'profileImageUrl': downloadUrl});
-
-        setState(() {
-          _profileImageUrl = downloadUrl;
-        });
-      } catch (e) {
-        print('Error al subir la imagen: $e');
-      }
-    }
-  }
 
   Future<void> _registrarConductor() async {
     if (_formKey.currentState!.validate()) {
