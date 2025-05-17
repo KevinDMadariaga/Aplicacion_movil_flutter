@@ -9,6 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:taxi_app/screens/home.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class MapaConductor extends StatefulWidget {
   const MapaConductor({super.key});
@@ -22,18 +23,55 @@ class _MapaConductorState extends State<MapaConductor> {
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   Stream<DocumentSnapshot>? _solicitudStream;
-  bool? conectadoLocal; // Nueva variable local para manejar estado del botón
+  bool? conectadoLocal;
+
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
     super.initState();
+    FocusManager.instance.primaryFocus?.unfocus();
     _solicitarPermisosUbicacion().then((granted) {
       if (granted) {
+        _inicializarNotificaciones();
         _inicializarController();
       } else {
         _mostrarDialogoPermisoDenegado();
       }
     });
+  }
+
+  Future<void> _inicializarNotificaciones() async {
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const InitializationSettings initSettings =
+        InitializationSettings(android: androidSettings);
+    await flutterLocalNotificationsPlugin.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (response) {},
+    );
+  }
+
+  Future<void> _mostrarNotificacionLocal(String titulo, String cuerpo) async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'canal_solicitudes',
+      'Solicitudes',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+    );
+
+    const NotificationDetails notiDetails =
+        NotificationDetails(android: androidDetails);
+
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      titulo,
+      cuerpo,
+      notiDetails,
+    );
   }
 
   void _inicializarController() async {
@@ -49,13 +87,18 @@ class _MapaConductorState extends State<MapaConductor> {
       conectadoLocal = controller!.conectado;
     });
 
-    controller!.onNuevaSolicitud = (id) {
+    controller!.onNuevaSolicitud = (id) async {
       setState(() {
         _solicitudStream = FirebaseFirestore.instance
             .collection('solicitud')
             .doc(id)
             .snapshots();
       });
+
+      await _mostrarNotificacionLocal(
+        "🚖 Nueva solicitud",
+        "Tienes una nueva solicitud pendiente",
+      );
     };
 
     controller!.onSolicitudCancelada = () {
@@ -108,229 +151,206 @@ class _MapaConductorState extends State<MapaConductor> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colores.amarillo,
-        title: const Text("Mapa Conductor"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: () {
-              final pos = controller?.currentPosition;
-              if (pos != null) {
-                _mapController?.animateCamera(
-                  CameraUpdate.newLatLngZoom(pos, 15),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        child: ListView(
-          children: [
-            DrawerHeader(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(color: Colores.amarillo),
-              child: FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance
-                    .collection('conductor')
-                    .doc(FirebaseAuth.instance.currentUser?.uid)
-                    .get(),
-                builder: (context, snapshot) {
-                  final style = const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold);
-
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Row(
-                      children: [
-                        const CircleAvatar(
-                          radius: 30,
-                          backgroundColor: Colors.grey, // Círculo vacío
-                        ),
-                        const SizedBox(width: 16),
-                      ],
-                    );
-                  }
-
-                  if (!snapshot.hasData || !snapshot.data!.exists) {
-                    return const Row(
-                      children: [
-                        CircleAvatar(
-                            radius: 30, child: Icon(Icons.person, size: 40)),
-                        SizedBox(width: 16),
-                        Text("Conductor no encontrado",
-                            style: TextStyle(fontSize: 20)),
-                      ],
-                    );
-                  }
-
-                  final conductorData = snapshot.data!;
-                  final String conductorName =
-                      conductorData['nombre']?.toUpperCase() ?? "SIN NOMBRE";
-
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const CircleAvatar(
-                        radius: 30,
-                        backgroundColor: Colors.white,
-                        child: Icon(Icons.person, color: Colors.grey, size: 32),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Text(conductorName,
-                            style: style, overflow: TextOverflow.ellipsis),
-                      ),
-                    ],
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colores.amarillo,
+          title: const Text("Mapa Conductor"),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.my_location),
+              onPressed: () {
+                final pos = controller?.currentPosition;
+                if (pos != null) {
+                  _mapController?.animateCamera(
+                    CameraUpdate.newLatLngZoom(pos, 15),
                   );
-                },
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Cerrar Sesión'),
-              onTap: () async {
-                await FirebaseAuth.instance.signOut();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const home()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: const Text('Historial de Viajes'),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const DetallesViaje(solicitudId: ''),
-                  ),
-                );
+                }
               },
             ),
           ],
         ),
-      ),
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: controller?.currentPosition ??
-                  const LatLng(8.2595534, -73.353469),
-              zoom: 15,
-            ),
-            onMapCreated: (c) => _mapController = c,
-            markers: _markers,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-          ),
-          if (conectadoLocal != null)
-            Positioned(
-              bottom: 80,
-              left: 130,
-              child: ElevatedButton(
-                onPressed: () async {
-                  final nuevoEstado = !conectadoLocal!;
-                  await controller?.actualizarEstadoConductor(nuevoEstado);
-                  setState(() {
-                    conectadoLocal = nuevoEstado;
-                  });
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: conectadoLocal! ? Colors.green : Colors.red,
-                ),
-                child: Text(
-                  conectadoLocal! ? "🟢 Conectado" : "🔴 Desconectado",
-                ),
-              ),
-            ),
-          if (_solicitudStream != null)
-            StreamBuilder<DocumentSnapshot>(
-              stream: _solicitudStream,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData || !snapshot.data!.exists) {
-                  return const SizedBox.shrink();
-                }
-
-                final data = snapshot.data!.data() as Map<String, dynamic>;
-                final GeoPoint origen = data['ubicacion_inicial'];
-                final String destino = data['direccion_seleccionada'] ?? "";
-                final String clienteId = data['clienteId'];
-
-                return FutureBuilder<List<String>>(
-                  future: Future.wait([
-                    controller?.obtenerNombreCliente(clienteId) ??
-                        Future.value("Cliente"),
-                    controller?.obtenerDireccion(origen) ??
-                        Future.value("Ubicación"),
-                  ]),
-                  builder: (_, snapshot) {
-                    if (!snapshot.hasData) return const SizedBox.shrink();
-                    final nombre = snapshot.data![0];
-                    final dir = snapshot.data![1];
-
-                    return Positioned(
-                      bottom: 16,
-                      left: 16,
-                      right: 16,
-                      child: Card(
-                        elevation: 5,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+        drawer: Drawer(
+          child: ListView(
+            children: [
+              DrawerHeader(
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(color: Colores.amarillo),
+                child: FutureBuilder<DocumentSnapshot>(
+                  future: FirebaseFirestore.instance
+                      .collection('conductor')
+                      .doc(FirebaseAuth.instance.currentUser?.uid)
+                      .get(),
+                  builder: (context, snapshot) {
+                    final style = const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold);
+                    if (!snapshot.hasData || !snapshot.data!.exists) {
+                      return const Text("Conductor no encontrado");
+                    }
+                    final data = snapshot.data!;
+                    final String name =
+                        data['nombre']?.toUpperCase() ?? 'SIN NOMBRE';
+                    return Row(
+                      children: [
+                        const CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Colors.white,
+                          child: Icon(Icons.person, color: Colors.grey),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "🚖 Solicitud Entrante",
-                                style: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 8),
-                              Text("🛤 Origen: $dir",
-                                  style: const TextStyle(fontSize: 16)),
-                              const SizedBox(height: 8),
-                              Text("📍 Destino: $destino",
-                                  style: const TextStyle(fontSize: 16)),
-                              const SizedBox(height: 16),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  CustomButton(
-                                    text: 'Rechazar',
-                                    onPressed: () =>
-                                        setState(() => _solicitudStream = null),
-                                    width: 145,
-                                    height: 50,
-                                    fontSize: 16,
-                                    icon: const Icon(Icons.cancel),
-                                  ),
-                                  CustomButton(
-                                    text: 'Aceptar',
-                                    onPressed: () =>
-                                        controller?.aceptarSolicitud(),
-                                    width: 145,
-                                    height: 50,
-                                    fontSize: 16,
-                                    icon: const Icon(Icons.check),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                        const SizedBox(width: 16),
+                        Expanded(child: Text(name, style: style)),
+                      ],
                     );
                   },
-                );
-              },
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout),
+                title: const Text('Cerrar Sesión'),
+                onTap: () async {
+                  await FirebaseAuth.instance.signOut();
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const home()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Historial de Viajes'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const DetallesViaje(solicitudId: ''),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        body: Stack(
+          children: [
+            GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: controller?.currentPosition ??
+                    const LatLng(8.2595534, -73.353469),
+                zoom: 15,
+              ),
+              onMapCreated: (c) => _mapController = c,
+              markers: _markers,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
             ),
-        ],
+            if (conectadoLocal != null)
+              Positioned(
+                bottom: 80,
+                left: 130,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final nuevoEstado = !conectadoLocal!;
+                    await controller?.actualizarEstadoConductor(nuevoEstado);
+                    setState(() {
+                      conectadoLocal = nuevoEstado;
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        conectadoLocal! ? Colors.green : Colors.red,
+                  ),
+                  child: Text(
+                    conectadoLocal! ? "🟢 Conectado" : "🔴 Desconectado",
+                  ),
+                ),
+              ),
+            if (_solicitudStream != null)
+              StreamBuilder<DocumentSnapshot>(
+                stream: _solicitudStream,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData || !snapshot.data!.exists) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final data = snapshot.data!.data() as Map<String, dynamic>;
+                  if (data['estado'] != 'pendiente')
+                    return const SizedBox.shrink();
+
+                  final GeoPoint origen = data['ubicacion_inicial'];
+                  final String destino = data['direccion_seleccionada'] ?? "";
+                  final String clienteId = data['clienteId'];
+
+                  return FutureBuilder<List<String>>(
+                    future: Future.wait([
+                      controller?.obtenerNombreCliente(clienteId) ??
+                          Future.value("Cliente"),
+                      controller?.obtenerDireccion(origen) ??
+                          Future.value("Ubicación"),
+                    ]),
+                    builder: (_, snapshot) {
+                      if (!snapshot.hasData) return const SizedBox.shrink();
+                      final nombre = snapshot.data![0];
+                      final dir = snapshot.data![1];
+
+                      return Positioned(
+                        bottom: 16,
+                        left: 16,
+                        right: 16,
+                        child: Card(
+                          elevation: 5,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("🚖 Solicitud Entrante",
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                Text("🛤 Origen: $dir"),
+                                const SizedBox(height: 4),
+                                Text("📍 Destino: $destino"),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    CustomButton(
+                                      text: 'Rechazar',
+                                      onPressed: () => setState(
+                                          () => _solicitudStream = null),
+                                      width: 145,
+                                      height: 50,
+                                      fontSize: 16,
+                                      icon: const Icon(Icons.cancel),
+                                    ),
+                                    CustomButton(
+                                      text: 'Aceptar',
+                                      onPressed: () =>
+                                          controller?.aceptarSolicitud(),
+                                      width: 145,
+                                      height: 50,
+                                      fontSize: 16,
+                                      icon: const Icon(Icons.check),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

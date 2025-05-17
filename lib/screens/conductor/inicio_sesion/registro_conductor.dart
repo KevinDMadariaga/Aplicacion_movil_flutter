@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
-import 'dart:io'; // Para trabajar con archivos locales
 
 class RegistroConductor extends StatefulWidget {
   const RegistroConductor({super.key});
@@ -20,6 +19,7 @@ class _RegistroConductorState extends State<RegistroConductor> {
   final _nombreController = TextEditingController();
   final _telefonoController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _placaController = TextEditingController();
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -36,9 +36,9 @@ class _RegistroConductorState extends State<RegistroConductor> {
       "correo": _emailController.text.trim(),
       "contraseña": _passwordController.text.trim(),
       "conectado": true, // Agregar el campo 'conectado' con valor 'true'
+      "placa": _placaController.text.trim(),
     });
   }
-
 
   Future<void> _registrarConductor() async {
     if (_formKey.currentState!.validate()) {
@@ -187,6 +187,16 @@ class _RegistroConductorState extends State<RegistroConductor> {
                       }
                       return null;
                     },
+                  ),
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.02),
+                  // Campo de Número de Teléfono
+                  TextFormField(
+                    controller: _placaController,
+                    decoration: InputDecoration(
+                      labelText: "Numero de Placa",
+                      prefixIcon: const Icon(Icons.perm_identity),
+                      border: OutlineInputBorder(),
+                    ),
                   ),
                   SizedBox(height: MediaQuery.of(context).size.height * 0.02),
                   // Campo de Número de Teléfono

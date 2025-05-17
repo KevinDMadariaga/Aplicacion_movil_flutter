@@ -2,19 +2,22 @@ import 'package:flutter/material.dart';
 
 class CustomButton extends StatelessWidget {
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final double? width;
   final double? height;
   final double? fontSize;
-  final Widget? icon; // Ícono como widget opcional
+  final Widget? icon;
+  final bool isLoading;
 
-  const CustomButton({super.key, 
+  const CustomButton({
+    super.key,
     required this.text,
     required this.onPressed,
     this.width,
     this.height,
     this.fontSize,
-    this.icon, // Ícono personalizado
+    this.icon,
+    this.isLoading = false,
   });
 
   @override
@@ -26,36 +29,47 @@ class CustomButton extends StatelessWidget {
     final buttonHeight = height ?? screenHeight * 0.07;
     final textFontSize = fontSize ?? buttonHeight * 0.4;
 
-    // ignore: sized_box_for_whitespace
-    return Container(
+    final isDisabled = onPressed == null || isLoading;
+
+    return SizedBox(
       width: buttonWidth,
       height: buttonHeight,
       child: ElevatedButton(
-        onPressed: onPressed,
-        // ignore: sort_child_properties_last
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              icon!, // Agrega el ícono proporcionado
-              SizedBox(width: 8), // Espacio entre ícono y texto
-            ],
-            Text(
-              text,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: textFontSize,
-              ),
-            ),
-          ],
-        ),
+        onPressed: isDisabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.yellow[700],
+          backgroundColor: isDisabled ? Colors.grey : Colors.yellow[700],
+          disabledBackgroundColor: Colors.grey.shade400,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(15),
           ),
         ),
+        child: isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (icon != null) ...[
+                    icon!,
+                    const SizedBox(width: 8),
+                  ],
+                  Text(
+                    text,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: textFontSize,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }

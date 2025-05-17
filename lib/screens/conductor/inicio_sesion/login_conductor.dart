@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
@@ -36,12 +35,11 @@ class _LoginConductorState extends State<LoginConductor> {
           return;
         }
 
-        UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        UserCredential userCredential =
+            await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-
-        await saveConductorToken(userCredential.user!.uid);
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Inicio de sesión exitoso")),
@@ -56,21 +54,6 @@ class _LoginConductorState extends State<LoginConductor> {
           SnackBar(content: Text("Error al iniciar sesión: $e")),
         );
       }
-    }
-  }
-
-  // Función para guardar el token FCM de los conductores en una nueva tabla
-  Future<void> saveConductorToken(String conductorId) async {
-    String? token = await FirebaseMessaging.instance.getToken();
-
-    if (token != null) {
-      await FirebaseFirestore.instance.collection('tokens_conductores').doc(conductorId).set(
-        {'fcm_token': token},
-        SetOptions(merge: true),
-      );
-      print("🔹 Token FCM guardado para conductor $conductorId: $token");
-    } else {
-      print("⚠️ No se pudo obtener el token FCM.");
     }
   }
 

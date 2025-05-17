@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
+import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
 
 class RegistroCliente extends StatefulWidget {
   const RegistroCliente({super.key});
@@ -51,8 +52,13 @@ class _RegistroClienteState extends State<RegistroCliente> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Registro exitoso")),
         );
+
+        // Redirige directamente al mapa
         // ignore: use_build_context_synchronously
-        Navigator.pop(context); // Vuelve al login después de registrarse
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MapaCliente()),
+        );
       } catch (e) {
         _showDialog("Error", e.toString());
       }

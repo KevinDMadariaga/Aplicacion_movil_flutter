@@ -9,6 +9,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
+import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/screens/conductor/resumen_conductor.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -40,6 +41,8 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   Marker? _markerConductor;
   String? _conductorId;
   Timer? _simulacionTimer;
+  bool _llegandoCliente = false;
+  bool _terminandoViaje = false;
   StreamSubscription<DocumentSnapshot>? _conductorListener;
 
   @override
@@ -352,7 +355,7 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
             ),
           ),
           Expanded(
-            flex: 3,
+            flex: 4,
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
@@ -368,9 +371,9 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                         ? "🚗 Llevando al cliente a su destino..."
                         : "📍 Dirígete a recoger al cliente",
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16),
+                        fontWeight: FontWeight.bold, fontSize: 20),
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       const CircleAvatar(
@@ -378,7 +381,7 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                         backgroundColor: Colors.grey,
                         child: Icon(Icons.person, color: Colors.white),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 15),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -393,60 +396,91 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 10),
                   const Text("🛣️ Progreso del viaje:",
                       style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
-                  LinearPercentIndicator(
-                    lineHeight: 14.0,
-                    percent: _progreso,
-                    barRadius: const Radius.circular(10),
-                    progressColor: Colors.amber,
-                    backgroundColor: Colors.grey[300]!,
+                  const Center(
+                    child: Text(
+                      "Recoger                                              Llevar",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black54,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 5),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Stack(
+                    alignment: Alignment.center,
                     children: [
-                      if (!_faseDos)
-                        ElevatedButton.icon(
-                          onPressed: _cercaDelCliente ? _llegueAlCliente : null,
-                          icon: const Icon(Icons.location_on),
-                          label: const Text("Ya llegué"),
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green),
+                      LinearPercentIndicator(
+                        lineHeight: 14.0,
+                        percent: _progreso,
+                        barRadius: const Radius.circular(10),
+                        progressColor: Colors.amber,
+                        backgroundColor: Colors.grey[300]!,
+                        padding: EdgeInsets.zero,
+                      ),
+                      const Positioned(
+                        child: Icon(
+                          Icons.arrow_drop_down,
+                          color: Colors.black,
+                          size: 24,
                         ),
-                      if (_faseDos)
-                        ElevatedButton.icon(
-                          onPressed: _cercaDelDestino ? _terminarViaje : null,
-                          icon: const Icon(Icons.flag),
-                          label: const Text("Terminar viaje"),
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent),
-                        ),
-                      const SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: _simularMovimiento,
-                        icon: const Icon(Icons.directions_run),
-                        label: const Text("Simular"),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent),
                       ),
                     ],
                   ),
                   const SizedBox(height: 5),
-                  ElevatedButton.icon(
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      if (!_faseDos)
+                        CustomButton(
+                          text: "Ya llegué",
+                          onPressed: _cercaDelCliente
+                              ? () => _llegueAlCliente()
+                              : null,
+                          isLoading: _llegandoCliente,
+                          width: 140,
+                          height: 45,
+                          fontSize: 14,
+                          icon: const Icon(Icons.location_on,
+                              color: Colors.white),
+                        ),
+                      if (_faseDos)
+                        CustomButton(
+                          text: "Terminar viaje",
+                          onPressed:
+                              _cercaDelDestino ? () => _terminarViaje() : null,
+                          isLoading: _terminandoViaje,
+                          width: 170,
+                          height: 45,
+                          fontSize: 14,
+                          icon: const Icon(Icons.flag, color: Colors.white),
+                        ),
+                      CustomButton(
+                        text: "Simular",
+                        onPressed: _simularMovimiento,
+                        width: 130,
+                        height: 45,
+                        fontSize: 14,
+                        icon: const Icon(Icons.directions_run,
+                            color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  CustomButton(
+                    text: "Abrir en Google Maps",
                     onPressed: () {
                       final destino =
                           _faseDos ? _ubicacionDestino : _ubicacionCliente;
                       if (destino != null) _abrirEnGoogleMaps(destino);
                     },
-                    icon: const Icon(Icons.map),
-                    label: const Text("Abrir en Google Maps"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black87,
-                      foregroundColor: Colors.white,
-                    ),
+                    width: double.infinity,
+                    height: 45,
+                    fontSize: 14,
+                    icon: const Icon(Icons.map, color: Colors.white),
                   ),
                 ],
               ),

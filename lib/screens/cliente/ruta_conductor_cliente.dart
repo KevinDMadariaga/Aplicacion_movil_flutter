@@ -8,6 +8,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
+import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/screens/cliente/resumen_cliente.dart';
 import 'package:taxi_app/utils/notificaciones.dart';
 
@@ -36,6 +37,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   bool _faseDos = false;
   String? _conductorId;
   Marker? _markerConductor;
+  String _placaConductor = "";
 
   StreamSubscription<DocumentSnapshot>? _solicitudListener;
   StreamSubscription<DocumentSnapshot>? _conductorListener;
@@ -100,6 +102,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     if (doc.exists && mounted) {
       setState(() {
         _nombreConductor = doc['nombre'].toString().toUpperCase();
+        _placaConductor = doc['placa']?.toString().toUpperCase() ?? '';
       });
     }
   }
@@ -162,15 +165,32 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
   Future<void> _obtenerDireccionConductor() async {
     if (_ubicacionConductor != null) {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        _ubicacionConductor!.latitude,
-        _ubicacionConductor!.longitude,
-      );
-      if (placemarks.isNotEmpty && mounted) {
-        final lugar = placemarks.first;
-        setState(() {
-          _direccionConductor = "${lugar.street}, ${lugar.locality}";
-        });
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          _ubicacionConductor!.latitude,
+          _ubicacionConductor!.longitude,
+        ).timeout(const Duration(seconds: 5)); // Control explícito de timeout
+
+        if (placemarks.isNotEmpty && mounted) {
+          final lugar = placemarks.first;
+          setState(() {
+            _direccionConductor = "${lugar.street}, ${lugar.locality}";
+          });
+        }
+      } on TimeoutException {
+        debugPrint("Timeout al obtener dirección del conductor");
+        if (mounted) {
+          setState(() {
+            _direccionConductor = "Sin dirección (tiempo de espera agotado)";
+          });
+        }
+      } catch (e) {
+        debugPrint("Error al obtener dirección del conductor: $e");
+        if (mounted) {
+          setState(() {
+            _direccionConductor = "Dirección no disponible";
+          });
+        }
       }
     }
   }
@@ -256,6 +276,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
@@ -293,9 +314,17 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("🚖 $_nombreConductor",
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text(
+                              "🚖 $_nombreConductor",
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              "🚗 Placa: $_placaConductor",
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
                             const SizedBox(height: 4),
                             Text("📍 $_direccionConductor"),
                           ],
@@ -303,15 +332,60 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   const Text("🛣️ Progreso del viaje:",
                       style: TextStyle(fontWeight: FontWeight.bold)),
-                  LinearPercentIndicator(
-                    lineHeight: 14.0,
-                    percent: _progreso,
-                    barRadius: const Radius.circular(10),
-                    progressColor: Colors.green,
-                    backgroundColor: Colors.grey[300]!,
+                  const SizedBox(height: 6),
+                  const Center(
+                    child: Text(
+                      "Recoger                                              Llevar",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      LinearPercentIndicator(
+                        lineHeight: 14.0,
+                        percent: _progreso,
+                        barRadius: const Radius.circular(10),
+                        progressColor: Colors.amber,
+                        backgroundColor: Colors.grey[300]!,
+                        padding: EdgeInsets.zero,
+                      ),
+                      const Positioned(
+                        child: Icon(
+                          Icons.arrow_drop_down,
+                          color: Colors.black,
+                          size: 24,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      CustomButton(
+                        text: "Detalles",
+                        width: MediaQuery.of(context).size.width * 0.35,
+                        onPressed: () {
+                          debugPrint("Detalles presionado");
+                        },
+                      ),
+                      CustomButton(
+                        text: "Emergencia",
+                        width: MediaQuery.of(context).size.width * 0.5,
+                        onPressed: () {
+                          debugPrint("Emergencia presionado");
+                        },
+                        icon: const Icon(Icons.warning, color: Colors.red),
+                      ),
+                    ],
                   ),
                 ],
               ),

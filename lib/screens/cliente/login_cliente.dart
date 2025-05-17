@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
@@ -30,7 +29,6 @@ class _LoginClienteState extends State<LoginCliente> {
   void _verificarUsuarioLogueado() {
     final User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      saveUserToken(user.uid);
       Future.microtask(() {
         if (!mounted) return; // 👈 Solución
         Navigator.pushReplacement(
@@ -61,8 +59,6 @@ class _LoginClienteState extends State<LoginCliente> {
           password: _passwordController.text.trim(),
         );
 
-        await saveUserToken(userCredential.user!.uid);
-
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Inicio de sesión exitoso")),
@@ -78,20 +74,6 @@ class _LoginClienteState extends State<LoginCliente> {
           SnackBar(content: Text("Error al iniciar sesión: $e")),
         );
       }
-    }
-  }
-
-  // Función para guardar el token FCM en la base de datos
-  Future<void> saveUserToken(String userId) async {
-    String? token = await FirebaseMessaging.instance.getToken();
-    if (token != null) {
-      await _firestore
-          .collection('cliente')
-          .doc(userId)
-          .update({'fcm_token': token});
-      print("🔹 Token FCM guardado para $userId: $token");
-    } else {
-      print("⚠️ No se pudo obtener el token FCM.");
     }
   }
 
