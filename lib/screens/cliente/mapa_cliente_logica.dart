@@ -5,11 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
-import 'package:taxi_app/components/colores.dart';
-import 'package:taxi_app/services/api_google.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:taxi_app/screens/cliente/historial_cliente.dart';
+import 'package:taxi_app/screens/conductor/historial_viajes_conductor.dart';
 
 class UbicacionResultado {
   final LatLng? location;
@@ -93,7 +91,7 @@ Polyline crearRutaPolyline(LatLng origen, LatLng destino) {
   return Polyline(
     polylineId: const PolylineId('ruta'),
     points: [origen, destino],
-    color: const Color.fromARGB(255, 0, 0, 0),
+    color: const Color.fromARGB(255, 255, 225, 0),
     width: 4,
   );
 }
@@ -155,11 +153,22 @@ Widget crearDrawerUsuario(User? user, BuildContext context) {
             Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
           },
         ),
+        ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('Historial de Viajes'),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const HistorialCliente(),
+              ),
+            );
+          },
+        ),
       ],
     ),
   );
 }
-
 
 Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
   return AlertDialog(
@@ -173,7 +182,8 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
         CustomButton(
           text: "Cancelar",
           onPressed: () {
-            Navigator.of(context, rootNavigator: true).pop(); // 🔴 Cierra el diálogo
+            Navigator.of(context, rootNavigator: true)
+                .pop(); // 🔴 Cierra el diálogo
             onCancelar(); // 🟢 Ejecuta la lógica de cancelación adicional
           },
           width: 130,
@@ -184,7 +194,6 @@ Widget crearDialogoCarga(BuildContext context, VoidCallback onCancelar) {
     ),
   );
 }
-
 
 Widget posicionarInfoUbicacion(
   String direccionInicial,
@@ -292,16 +301,16 @@ Future<UbicacionResultado?> mostrarBusquedaUbicacion({
   required BuildContext context,
   required LatLng? userLocation,
 }) async {
-List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> sugerencias = [];
   final TextEditingController searchController = TextEditingController();
 
- return await showModalBottomSheet<UbicacionResultado>(
+  return await showModalBottomSheet<UbicacionResultado>(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
     ),
-builder: (context) {
+    builder: (context) {
       return StatefulBuilder(
         builder: (context, setStateModal) {
           void buscarUbicaciones(String query) async {
@@ -326,17 +335,16 @@ builder: (context) {
                 top: 40,
                 bottom: MediaQuery.of(context).viewInsets.bottom + 16,
               ),
-                  child: Column(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.place, size: 40, color: Colors.blueAccent),
                   const SizedBox(height: 8),
                   const Text(
                     '¿A dónde quieres ir?',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                      const SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: searchController,
                     autofocus: true,
@@ -345,21 +353,21 @@ builder: (context) {
                       filled: true,
                       fillColor: Colors.white,
                       hintText: "Buscar dirección...",
-                      prefixIcon: const Icon(Icons.search,
-                          color: Colors.blueAccent),
+                      prefixIcon:
+                          const Icon(Icons.search, color: Colors.blueAccent),
                       focusedBorder: OutlineInputBorder(
                         borderSide: const BorderSide(
                             color: Colors.blueAccent, width: 2.0),
                         borderRadius: BorderRadius.circular(12.0),
                       ),
-                        enabledBorder: OutlineInputBorder(
-                        borderSide: const BorderSide(
-                            color: Colors.grey, width: 1.0),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide:
+                            const BorderSide(color: Colors.grey, width: 1.0),
                         borderRadius: BorderRadius.circular(12.0),
                       ),
                     ),
                   ),
-                     const SizedBox(height: 12),
+                  const SizedBox(height: 12),
                   if (sugerencias.isNotEmpty)
                     Flexible(
                       child: ListView.builder(
@@ -369,9 +377,8 @@ builder: (context) {
                           final lugar = sugerencias[index];
                           final nombre = lugar['nombre'];
                           final GeoPoint geopoint = lugar['ubicacion'];
-                          
 
-                              return ListTile(
+                          return ListTile(
                             leading: const Icon(Icons.location_on,
                                 color: Colors.blue),
                             title: Text(nombre ?? ''),
@@ -407,33 +414,6 @@ builder: (context) {
       );
     },
   );
-}
-
-Future<List<LatLng>> obtenerRutaPorCalles(LatLng origen, LatLng destino) async {
-  final apiKey = ApiConfig.getGoogleMapsApiKey();
-  final url = Uri.parse(
-    'https://maps.googleapis.com/maps/api/directions/json'
-    '?origin=${origen.latitude},${origen.longitude}'
-    '&destination=${destino.latitude},${destino.longitude}'
-    '&mode=driving'
-    '&key=$apiKey',
-  );
-
-  final response = await http.get(url);
-
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    if (data['routes'].isNotEmpty) {
-      final polyline = data['routes'][0]['overview_polyline']['points'];
-      return decodePolyline(polyline);
-    } else {
-      print('❌ No se encontraron rutas entre los puntos.');
-    }
-  } else {
-    print('❌ Error al consultar Google Directions API: ${response.statusCode}');
-  }
-
-  return [];
 }
 
 List<LatLng> decodePolyline(String polyline) {

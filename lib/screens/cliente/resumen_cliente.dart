@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_rating_bar/flutter_rating_bar.dart';
-import 'package:taxi_app/components/colores.dart';
-import 'package:taxi_app/screens/home.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
 
 class ResumenSolicitud extends StatefulWidget {
   final String solicitudId;
@@ -15,8 +15,9 @@ class ResumenSolicitud extends StatefulWidget {
 }
 
 class _ResumenSolicitudState extends State<ResumenSolicitud> {
-  double _calificacion = 0.0;
+  double _calificacion = 1.0; // Inicializado en 1 para que muestre estrella
   bool _yaCalificada = false;
+  String _direccionRecogida = "Cargando dirección...";
 
   String formatoHoraBogota(Timestamp timestamp) {
     final fecha = timestamp.toDate().toUtc().subtract(const Duration(hours: 5));
@@ -34,60 +35,85 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
     return "$minutos minuto${minutos == 1 ? '' : 's'}";
   }
 
-  Future<bool> _verificarSiYaCalifico(String solicitudId) async {
+  Future<void> _verificarYRecuperarCalificacion(String solicitudId) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('historial viaje')
         .where('solicitudId', isEqualTo: solicitudId)
+        .limit(1)
         .get();
 
-    return snapshot.docs.isNotEmpty;
+    if (snapshot.docs.isNotEmpty) {
+      final calificacion = snapshot.docs.first['calificacion'];
+      setState(() {
+        _yaCalificada = true;
+        _calificacion = (calificacion as int).toDouble();
+      });
+    }
   }
 
-  Future<void> _guardarCalificacion(
-    Map<String, dynamic> data,
-    String nombreConductor,
-    String nombreCliente,
-  ) async {
-    final calificacion = _calificacion.toInt();
-    final inicio = data['hora_aceptacion'] as Timestamp?;
-    final fin = data['fecha_termino'] as Timestamp?;
+  Future<void> _obtenerDireccionRecogida(double lat, double lng) async {
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      if (placemarks.isNotEmpty && mounted) {
+        final p = placemarks.first;
+        setState(() {
+          _direccionRecogida =
+              "${p.street ?? ''}, ${p.locality ?? ''}, ${p.administrativeArea ?? ''}";
+        });
+      } else {
+        setState(() {
+          _direccionRecogida = "Dirección no disponible";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _direccionRecogida = "Error al obtener dirección";
+      });
+    }
+  }
 
-    final duracion = (inicio != null && fin != null)
-        ? fin.toDate().difference(inicio.toDate()).inMinutes
+  String _mapearCalificacionTexto(int calificacion) {
+    switch (calificacion) {
+      case 0:
+        return "Mala experiencia";
+      case 1:
+        return "Malo";
+      case 2:
+        return "Regular";
+      case 3:
+        return "Bueno";
+      case 4:
+        return "Muy buen servicio";
+      case 5:
+        return "Excelente servicio";
+      default:
+        return "Sin calificación";
+    }
+  }
+
+  Future<void> _guardarCalificacion(Map<String, dynamic> data,
+      String nombreConductor, String nombreCliente) async {
+    final horaInicio = data['hora_aceptacion'] as Timestamp?;
+    final horaFin = data['fecha_terminacion'] as Timestamp?;
+    final duracion = (horaInicio != null && horaFin != null)
+        ? horaFin.toDate().difference(horaInicio.toDate()).inMinutes
         : 0;
 
-    await FirebaseFirestore.instance.collection('historial viaje').add({
+    await FirebaseFirestore.instance
+        .collection('historial viaje')
+        .doc() // genera ID único
+        .set({
       'solicitudId': widget.solicitudId,
       'clienteId': data['clienteId'],
       'conductorId': data['conductorId'],
       'direccion_inicial': data['ubicacion_inicial'],
       'direccion_destino': data['direccion_seleccionada'],
-      'hora_aceptacion': data['hora_aceptacion'],
-      'fecha_termino': data['fecha_termino'],
+      'hora_aceptacion': horaInicio,
+      'fecha_termino': horaFin,
       'duracion_minutos': duracion,
-      'calificacion': calificacion,
+      'calificacion': _calificacion,
       'conductor_nombre': nombreConductor,
       'cliente_nombre': nombreCliente,
-    });
-
-    final conductorRef = FirebaseFirestore.instance
-        .collection('conductor')
-        .doc(data['conductorId']);
-
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final snapshot = await transaction.get(conductorRef);
-      final currentSum = snapshot['suma_calificaciones'] ?? 0;
-      final currentCount = snapshot['total_calificaciones'] ?? 0;
-
-      final newSum = currentSum + calificacion;
-      final newCount = currentCount + 1;
-      final newAverage = newSum / newCount;
-
-      transaction.update(conductorRef, {
-        'suma_calificaciones': newSum,
-        'total_calificaciones': newCount,
-        'promedio_calificacion': newAverage,
-      });
     });
 
     setState(() => _yaCalificada = true);
@@ -96,11 +122,7 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
   @override
   void initState() {
     super.initState();
-    _verificarSiYaCalifico(widget.solicitudId).then((calificada) {
-      if (mounted) {
-        setState(() => _yaCalificada = calificada);
-      }
-    });
+    _verificarYRecuperarCalificacion(widget.solicitudId);
   }
 
   @override
@@ -123,7 +145,9 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
           final direccionSeleccionada = data['direccion_seleccionada'];
           final geo = data['ubicacion_inicial'];
           final horaInicio = data['hora_aceptacion'] as Timestamp?;
-          final horaFin = data['fecha_termino'] as Timestamp?;
+          final horaFin = data['fecha_terminacion'] as Timestamp?;
+
+          _obtenerDireccionRecogida(geo.latitude, geo.longitude);
 
           return FutureBuilder<DocumentSnapshot>(
             future: FirebaseFirestore.instance
@@ -153,140 +177,246 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
                   final nombreCliente =
                       clienteSnapshot.data!['nombre'] ?? "Cliente";
 
-                  return Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 40),
-                        const Text(
-                          "Resumen del Viaje",
-                          style: TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
+                  return SafeArea(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Image.asset(
+                              'assets/img/taxi.png',
+                              height: 150,
+                              fit: BoxFit.contain,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text("\u{1F464} Cliente: $nombreCliente",
-                            style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text("\u{1F695} Conductor: $nombreConductor",
-                            style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 16),
-                        const Text("\u{1F4CD} Dirección de Recogida:",
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        Text("${geo.latitude}, ${geo.longitude}",
-                            style: const TextStyle(fontSize: 16)),
-                        const SizedBox(height: 10),
-                        const Text("\u{1F3C1} Dirección de Destino:",
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        Text(direccionSeleccionada ?? "No disponible",
-                            style: const TextStyle(fontSize: 16)),
-                        const SizedBox(height: 10),
-                        if (horaInicio != null)
-                          Text(
-                              "\u{1F552} Inicio: ${formatoHoraBogota(horaInicio)}"),
-                        if (horaFin != null)
-                          Text("\u{1F552} Fin: ${formatoHoraBogota(horaFin)}"),
-                        if (horaInicio != null && horaFin != null)
-                          Text(
-                              "\u{23F1}\u{FE0F} Duración: ${obtenerDuracion(horaInicio, horaFin)}"),
-                        if (_yaCalificada && _calificacion > 0) ...[
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                _calificacion <= 2
-                                    ? Icons.sentiment_very_dissatisfied
-                                    : _calificacion == 3
-                                        ? Icons.sentiment_neutral
-                                        : Icons.sentiment_satisfied,
-                                color: _calificacion <= 2
-                                    ? Colors.red
-                                    : _calificacion == 3
-                                        ? Colors.orange
-                                        : Colors.green,
-                                size: 40,
-                              ),
-                              const SizedBox(width: 12),
+                              const Icon(Icons.person,
+                                  size: 32, color: Color(0xFFFFD600)),
+                              const SizedBox(width: 8),
                               Text(
-                                _calificacion <= 2
-                                    ? "Mala experiencia"
-                                    : _calificacion == 3
-                                        ? "Aceptable"
-                                        : "\u{1F389} ¡Muy buen servicio!",
-                                style: TextStyle(
-                                  fontSize: 18,
+                                nombreConductor,
+                                style: const TextStyle(
+                                  fontSize: 22,
                                   fontWeight: FontWeight.bold,
-                                  color: _calificacion <= 2
-                                      ? Colors.red
-                                      : _calificacion == 3
-                                          ? Colors.orange
-                                          : Colors.green,
+                                  color: Colors.black87,
                                 ),
                               ),
                             ],
                           ),
-                        ],
-                        const Spacer(),
-                        if (!_yaCalificada) ...[
-                          const Text("⭐ Califica tu experiencia:",
-                              style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 10),
-                          RatingBar.builder(
-                            initialRating: 0,
-                            minRating: 1,
-                            allowHalfRating: false,
-                            direction: Axis.horizontal,
-                            itemCount: 5,
-                            itemBuilder: (context, _) =>
-                                const Icon(Icons.star, color: Colors.amber),
-                            onRatingUpdate: (rating) {
-                              setState(() => _calificacion = rating);
-                            },
+                          const SizedBox(height: 32),
+                          Text(
+                            "📍 Dirección de Recogida:",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            _direccionRecogida,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 20),
-                        ],
-                        Center(
-                          child: SizedBox(
+                          Text(
+                            "🏁 Dirección de Destino:",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          Text(
+                            direccionSeleccionada ?? "No disponible",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          if (horaInicio != null) ...[
+                            Text(
+                              "🕓 Hora de Inicio:",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              formatoHoraBogota(horaInicio),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+                          if (horaFin != null) ...[
+                            Text(
+                              "🕓 Hora de Finalización:",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              formatoHoraBogota(horaFin),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 30),
+                          if (!_yaCalificada) ...[
+                            const Text(
+                              "😊 Califica tu experiencia:",
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _calificacion = 1),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        "😡",
+                                        style: TextStyle(
+                                          fontSize: 48,
+                                          color: _calificacion == 1
+                                              ? Colors.red
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                      Text("Malo",
+                                          style: TextStyle(
+                                            color: _calificacion == 1
+                                                ? Colors.red
+                                                : Colors.grey,
+                                            fontWeight: _calificacion == 1
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          )),
+                                    ],
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _calificacion = 2),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        "🙂",
+                                        style: TextStyle(
+                                          fontSize: 48,
+                                          color: _calificacion == 2
+                                              ? Colors.orange
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                      Text("Bueno",
+                                          style: TextStyle(
+                                            color: _calificacion == 2
+                                                ? Colors.orange
+                                                : Colors.grey,
+                                            fontWeight: _calificacion == 2
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          )),
+                                    ],
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _calificacion = 3),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        "😍",
+                                        style: TextStyle(
+                                          fontSize: 48,
+                                          color: _calificacion == 3
+                                              ? Colors.green
+                                              : Colors.grey,
+                                        ),
+                                      ),
+                                      Text("Excelente",
+                                          style: TextStyle(
+                                            color: _calificacion == 3
+                                                ? Colors.green
+                                                : Colors.grey,
+                                            fontWeight: _calificacion == 3
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                          )),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+                          SizedBox(
                             width: MediaQuery.of(context).size.width * 0.8,
                             height: 50,
                             child: ElevatedButton(
-                              onPressed: _yaCalificada || _calificacion == 0
-                                  ? () {
-                                      Navigator.pushReplacement(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (_) => const home()));
-                                    }
-                                  : () async {
-                                      await _guardarCalificacion(
-                                          data, nombreConductor, nombreCliente);
-                                      Navigator.pushReplacement(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (_) => const home()));
-                                    },
+                              onPressed: () async {
+                                if (_yaCalificada) {
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => const MapaCliente()),
+                                  );
+                                } else if (_calificacion >= 1) {
+                                  await _guardarCalificacion(
+                                      data, nombreConductor, nombreCliente);
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) => const MapaCliente()),
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            "Por favor selecciona una calificación.")),
+                                  );
+                                }
+                              },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colores.amarillo,
+                                backgroundColor: const Color(0xFFFFD600),
                                 foregroundColor: Colors.black,
                                 textStyle: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              child: Text(_yaCalificada
-                                  ? "Volver al inicio"
-                                  : "Calificar y volver"),
+                              child: Text(
+                                _yaCalificada
+                                    ? "Volver al Mapa"
+                                    : "Calificar y Volver",
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 30),
-                      ],
+                          const SizedBox(height: 30),
+                        ],
+                      ),
                     ),
                   );
                 },

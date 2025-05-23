@@ -3,8 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
-class HistorialConductor extends StatelessWidget {
-  const HistorialConductor({super.key});
+class HistorialCliente extends StatelessWidget {
+  const HistorialCliente({super.key});
 
   String formatoFechaHora(Timestamp timestamp) {
     final fecha = timestamp.toDate().toUtc().subtract(const Duration(hours: 5));
@@ -104,7 +104,7 @@ class HistorialConductor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String conductorId = FirebaseAuth.instance.currentUser?.uid ?? "";
+    final String clienteId = FirebaseAuth.instance.currentUser?.uid ?? "";
 
     return Scaffold(
       appBar: AppBar(
@@ -114,7 +114,7 @@ class HistorialConductor extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('historial viaje')
-            .where('conductorId', isEqualTo: conductorId)
+            .where('clienteId', isEqualTo: clienteId)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -142,7 +142,8 @@ class HistorialConductor extends StatelessWidget {
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: ListTile(
-                  leading: const Icon(Icons.local_taxi, color: Colors.amber),
+                  leading: const Icon(Icons.supervised_user_circle,
+                      color: Colors.amber),
                   title: Text("$destino"),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

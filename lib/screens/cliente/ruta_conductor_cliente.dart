@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geocoding/geocoding.dart';
@@ -9,7 +10,9 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:taxi_app/components/boton.dart';
+import 'package:taxi_app/main.dart';
 import 'package:taxi_app/screens/cliente/resumen_cliente.dart';
+import 'package:vibration/vibration.dart';
 import 'package:taxi_app/utils/notificaciones.dart';
 
 class ClienteRecogida extends StatefulWidget {
@@ -65,6 +68,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
       final data = doc.data()!;
       final nuevoEstado = data['estado'];
 
+      // SOLO NAVEGAR si el estado es 'terminado'
       if (nuevoEstado == 'terminado') {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(MaterialPageRoute(
@@ -73,6 +77,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         return;
       }
 
+      // Actualizar estado local según el estado en Firestore
       final nuevaFaseDos = nuevoEstado == 'llego';
       if (nuevaFaseDos != _faseDos && mounted) {
         setState(() {
@@ -84,11 +89,14 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         });
       }
 
+      // Actualizar ubicaciones y conductor para la UI
       _ubicacionInicial = LatLng(data['ubicacion_inicial'].latitude,
           data['ubicacion_inicial'].longitude);
       _ubicacionDestino = LatLng(data['ubicacion_seleccionada'].latitude,
           data['ubicacion_seleccionada'].longitude);
       _conductorId = data['conductorId'];
+
+      // Actualizar datos conductor y ubicacion
       await _obtenerDatosConductor(_conductorId!);
       _escucharUbicacionConductor(_conductorId!);
     });
@@ -255,7 +263,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
     if (!_notificado && !_faseDos && nuevoProgreso >= 0.95) {
       _notificado = true;
-      _mostrarNotificacionDeLlegada();
+      _mostrarNotificacionLocal();
     }
 
     _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
@@ -267,12 +275,32 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     });
   }
 
-  void _mostrarNotificacionDeLlegada() {
-    NotificacionLocal.mostrarNotificacion(
-      id: 1,
-      titulo: "Conductor cerca",
-      cuerpo: "🚖 Tu conductor está a punto de llegar.",
+  Future<void> _mostrarNotificacionLocal() async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'canal_solicitudes', // ID del canal
+      'Solicitudes', // Nombre visible del canal
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true, // 🔊 Sonido predeterminado del sistema
+      enableVibration: true, // ✅ Activa vibración
+      icon: '@mipmap/ic_launcher', // Icono predeterminado
     );
+
+    const NotificationDetails notiDetails =
+        NotificationDetails(android: androidDetails);
+
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      '🚖 Conductor cerca', // TÍTULO
+      'Tu conductor está por llegar.', // MENSAJE
+      notiDetails,
+    );
+
+    // ✅ Vibración predeterminada
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(); // vibración simple estándar
+    }
   }
 
   @override

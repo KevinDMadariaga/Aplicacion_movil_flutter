@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/controllers/conductor_controller.dart';
+import 'package:taxi_app/screens/cliente/historial_cliente.dart';
 import 'package:taxi_app/screens/conductor/historial_viajes_conductor.dart';
 import 'package:taxi_app/screens/conductor/ruta_cliente_conductor.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +11,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:taxi_app/screens/home.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:typed_data';
+
+import 'package:vibration/vibration.dart'; // asegúrate de importar esto si usas vibrationPattern
 
 class MapaConductor extends StatefulWidget {
   const MapaConductor({super.key});
@@ -54,30 +58,33 @@ class _MapaConductorState extends State<MapaConductor> {
   }
 
   Future<void> _mostrarNotificacionLocal(String titulo, String cuerpo) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-      'canal_solicitudes',
-      'Solicitudes',
+    final androidDetails = AndroidNotificationDetails(
+      'canal_solicitudes', // ID del canal
+      'Solicitudes', // Nombre visible del canal
       importance: Importance.max,
       priority: Priority.high,
-      showWhen: true,
+      playSound: true, // 🔊 Usa el sonido predeterminado del sistema
+      enableVibration: true, // ✅ Activa vibración
     );
 
-    const NotificationDetails notiDetails =
-        NotificationDetails(android: androidDetails);
+    final notificationDetails = NotificationDetails(android: androidDetails);
+
+    // ✅ Vibración estándar simple
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 500);
+    }
 
     await flutterLocalNotificationsPlugin.show(
       0,
-      titulo,
-      cuerpo,
-      notiDetails,
+      '🚖Taxi Ya',
+      'Un cliente necesita de tus servicios',
+      notificationDetails,
     );
   }
 
   void _inicializarController() async {
     controller = MapaConductorController()
       ..configurarNotificaciones()
-      ..guardarTokenFCM()
       ..iniciarSeguimientoUbicacion((pos) {
         _mapController?.animateCamera(CameraUpdate.newLatLng(pos));
       });
@@ -212,7 +219,7 @@ class _MapaConductorState extends State<MapaConductor> {
                   await FirebaseAuth.instance.signOut();
                   Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(builder: (_) => const home()),
+                    MaterialPageRoute(builder: (_) => const Home()),
                   );
                 },
               ),
@@ -223,7 +230,7 @@ class _MapaConductorState extends State<MapaConductor> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const DetallesViaje(solicitudId: ''),
+                      builder: (_) => const HistorialCliente(),
                     ),
                   );
                 },

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -48,28 +47,7 @@ class MapaConductorController {
         .update({'conectado': estado});
   }
 
-  Future<void> guardarTokenFCM() async {
-    final token = await FirebaseMessaging.instance.getToken();
-    if (token != null) {
-      await FirebaseFirestore.instance
-          .collection('conductor')
-          .doc(conductor.uid)
-          .update({'token_fcm': token});
-    }
-  }
-
   void configurarNotificaciones() {
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      if (!conectado) return;
-      if (message.data.containsKey('solicitudId')) {
-        final id = message.data['solicitudId'];
-        if (solicitudId != id) {
-          solicitudId = id;
-          onNuevaSolicitud?.call(id);
-        }
-      }
-    });
-
     _solicitudesSubscription = FirebaseFirestore.instance
         .collection('solicitud')
         .where('estado', isEqualTo: 'pendiente')

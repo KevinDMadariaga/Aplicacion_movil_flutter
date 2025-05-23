@@ -249,42 +249,20 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   Future<void> _terminarViaje() async {
     Timestamp now = Timestamp.fromDate(DateTime.now());
 
-    final doc = await FirebaseFirestore.instance
+    await FirebaseFirestore.instance
         .collection('solicitud')
         .doc(widget.solicitudId)
-        .get();
+        .update({
+      'estado': 'terminado',
+      'fecha_terminacion': now,
+    });
 
-    if (doc.exists) {
-      final data = doc.data()!;
-      final horaAceptacion = data['hora_aceptacion']?.toDate();
-      final nombreCliente = data['clienteId'];
-      final direccionInicial = data['ubicacion_inicial'];
-      final direccionDestino = data['ubicacion_seleccionada'];
-
-      await FirebaseFirestore.instance.collection('historial viaje').add({
-        'solicitudId': widget.solicitudId,
-        'fecha_terminacion': now,
-        'hora_aceptacion': horaAceptacion,
-        'nombre_cliente': nombreCliente,
-        'direccion_inicial': direccionInicial,
-        'direccion_destino': direccionDestino,
-      });
-
-      await FirebaseFirestore.instance
-          .collection('solicitud')
-          .doc(widget.solicitudId)
-          .update({
-        'estado': 'terminado',
-        'fecha_terminacion': now,
-      });
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => ResumenConductor(solicitudId: widget.solicitudId),
-        ),
-      );
-    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => ResumenConductor(solicitudId: widget.solicitudId),
+      ),
+    );
   }
 
   void _simularMovimiento() {

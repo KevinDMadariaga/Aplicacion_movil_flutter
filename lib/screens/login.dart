@@ -40,7 +40,7 @@ class LoadingScreen extends StatelessWidget {
             },
           );
         } else {
-          return const home(); // Nueva pantalla para elegir rol
+          return const Home(); // Nueva pantalla para elegir rol
         }
       },
     );
