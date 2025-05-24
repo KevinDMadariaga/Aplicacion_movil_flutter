@@ -304,8 +304,12 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final fontSize = screenWidth * 0.045;
+    final iconSize = screenWidth * 0.07;
+
     return Scaffold(
       body: Column(
         children: [
@@ -324,7 +328,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
           Expanded(
             flex: 3,
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(screenWidth * 0.04),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -335,38 +339,40 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                 children: [
                   Row(
                     children: [
-                      const CircleAvatar(
-                          radius: 30, backgroundColor: Colors.grey),
-                      const SizedBox(width: 16),
+                      CircleAvatar(
+                        radius: screenWidth * 0.08,
+                        backgroundColor: Colors.grey,
+                      ),
+                      SizedBox(width: screenWidth * 0.04),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              "🚖 $_nombreConductor",
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "🚗 Placa: $_placaConductor",
-                              style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text("📍 $_direccionConductor"),
+                            Text("🚖 $_nombreConductor",
+                                style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.bold)),
+                            SizedBox(height: screenHeight * 0.005),
+                            Text("🚗 Placa: $_placaConductor",
+                                style: TextStyle(
+                                    fontSize: fontSize * 0.95,
+                                    fontWeight: FontWeight.bold)),
+                            SizedBox(height: screenHeight * 0.005),
+                            Text("📍 $_direccionConductor",
+                                style: TextStyle(fontSize: fontSize * 0.9)),
                           ],
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  const Text("🛣️ Progreso del viaje:",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
+                  SizedBox(height: screenHeight * 0.015),
+                  Text("🛣️ Progreso del viaje:",
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: fontSize)),
+                  SizedBox(height: screenHeight * 0.008),
                   const Center(
                     child: Text(
-                      "Recoger                                              Llevar",
+                      "Llegada                                              Destino",
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
@@ -378,40 +384,40 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
                     alignment: Alignment.center,
                     children: [
                       LinearPercentIndicator(
-                        lineHeight: 14.0,
+                        lineHeight: screenHeight * 0.015,
                         percent: _progreso,
                         barRadius: const Radius.circular(10),
                         progressColor: Colors.amber,
                         backgroundColor: Colors.grey[300]!,
                         padding: EdgeInsets.zero,
                       ),
-                      const Positioned(
-                        child: Icon(
-                          Icons.arrow_drop_down,
-                          color: Colors.black,
-                          size: 24,
-                        ),
-                      ),
+                      Icon(Icons.arrow_drop_down,
+                          color: Colors.black, size: iconSize),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  SizedBox(height: screenHeight * 0.015),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       CustomButton(
                         text: "Detalles",
-                        width: MediaQuery.of(context).size.width * 0.35,
+                        width: screenWidth * 0.35,
+                        height: screenHeight * 0.06,
+                        fontSize: fontSize,
                         onPressed: () {
                           debugPrint("Detalles presionado");
                         },
                       ),
                       CustomButton(
                         text: "Emergencia",
-                        width: MediaQuery.of(context).size.width * 0.5,
+                        width: screenWidth * 0.5,
+                        height: screenHeight * 0.06,
+                        fontSize: fontSize,
+                        icon: Icon(Icons.warning,
+                            size: iconSize, color: Colors.red),
                         onPressed: () {
                           debugPrint("Emergencia presionado");
                         },
-                        icon: const Icon(Icons.warning, color: Colors.red),
                       ),
                     ],
                   ),
@@ -422,6 +428,33 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         ],
       ),
     );
+  }
+
+  Future<void> _mostrarNotificacionFueraDeCasa() async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'noti_fuera_casa',
+      'Notificación Fuera de Casa',
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      icon: '@mipmap/ic_launcher',
+    );
+
+    const NotificationDetails notiDetails =
+        NotificationDetails(android: androidDetails);
+
+    await flutterLocalNotificationsPlugin.show(
+      1,
+      '🚖 Tu conductor ha llegado',
+      'Tu conductor está afuera de tu casa',
+      notiDetails,
+    );
+
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 800);
+    }
   }
 
   Future<List<LatLng>> obtenerRutaPorCalles(

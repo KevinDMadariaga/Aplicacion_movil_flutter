@@ -37,7 +37,11 @@ class HistorialCliente extends StatelessWidget {
     final screenWidth = MediaQuery.of(context).size.width;
     final baseFontSize = screenWidth * 0.042;
 
-    final origen = await obtenerDireccion(data['direccion_inicial']);
+    String origen = "Origen desconocido";
+    try {
+      origen = await obtenerDireccion(data['direccion_inicial']);
+    } catch (_) {}
+
     final destino = data['direccion_destino'] ?? 'Destino no disponible';
     final horaInicio = data['hora_aceptacion'] as Timestamp?;
     final horaFin = data['fecha_termino'] as Timestamp?;
@@ -52,50 +56,89 @@ class HistorialCliente extends StatelessWidget {
         }[calificacionNum] ??
         "Sin calificación";
 
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Center(
-          child: Text(
-            "📝 Detalle del Viaje",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: baseFontSize + 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(
+          children: [
+            const Icon(Icons.receipt_long, color: Colors.amber, size: 40),
+            const SizedBox(height: 8),
+            Text(
+              "Detalle del Viaje",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: baseFontSize + 4,
+                color: Colors.black87,
+              ),
             ),
-          ),
+          ],
         ),
         content: SingleChildScrollView(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text("👤 Cliente: $cliente",
-                  style: TextStyle(fontSize: baseFontSize)),
-              const SizedBox(height: 8),
-              Text("📍 Origen: $origen",
-                  style: TextStyle(fontSize: baseFontSize)),
-              const SizedBox(height: 8),
-              Text("🏁 Destino: $destino",
-                  style: TextStyle(fontSize: baseFontSize)),
-              const SizedBox(height: 8),
+              const Divider(thickness: 1),
+              _filaDetalle("📍 Origen:", origen, baseFontSize),
+              _filaDetalle("🏁 Destino:", destino, baseFontSize),
+              const Divider(thickness: 1),
               if (horaInicio != null)
-                Text("🕓 Inicio: ${formatoFechaHora(horaInicio)}",
-                    style: TextStyle(fontSize: baseFontSize)),
+                _filaDetalle(
+                    "🕓 Inicio:", formatoFechaHora(horaInicio), baseFontSize),
               if (horaFin != null)
-                Text("🏁 Fin: ${formatoFechaHora(horaFin)}",
-                    style: TextStyle(fontSize: baseFontSize)),
-              const SizedBox(height: 8),
-              Text("⏱ Duración: $duracion min",
-                  style: TextStyle(fontSize: baseFontSize)),
-              const SizedBox(height: 8),
-              Text("⭐ Calificación: $calificacionTexto",
-                  style: TextStyle(fontSize: baseFontSize)),
+                _filaDetalle(
+                    "🏁 Fin:", formatoFechaHora(horaFin), baseFontSize),
+              _filaDetalle("⏱ Duración:", "$duracion min", baseFontSize),
+              const Divider(thickness: 1),
+              _filaDetalle("Calificación:", calificacionTexto, baseFontSize),
             ],
           ),
         ),
+        actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cerrar"),
+            child: const Text(
+              "Cerrar",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.amber,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ✅ Función auxiliar para estructurar las filas
+  Widget _filaDetalle(String titulo, String valor, double fontSize) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              titulo,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: fontSize,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 4,
+            child: Text(
+              valor,
+              style: TextStyle(fontSize: fontSize, color: Colors.black54),
+              textAlign: TextAlign.right,
+            ),
           ),
         ],
       ),
@@ -142,8 +185,7 @@ class HistorialCliente extends StatelessWidget {
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: ListTile(
-                  leading: const Icon(Icons.supervised_user_circle,
-                      color: Colors.amber),
+                  leading: const Icon(Icons.receipt_long, color: Colors.amber),
                   title: Text("$destino"),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

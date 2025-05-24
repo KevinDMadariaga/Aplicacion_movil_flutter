@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,8 +11,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:taxi_app/components/boton.dart';
+import 'package:taxi_app/main.dart';
 import 'package:taxi_app/screens/conductor/resumen_conductor.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vibration/vibration.dart';
 
 class ConductorRecogida extends StatefulWidget {
   final String solicitudId;
@@ -315,8 +318,13 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     }
   }
 
+// Dentro del método build()
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final fontSize = screenWidth * 0.044;
+
     return Scaffold(
       body: Column(
         children: [
@@ -333,177 +341,214 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
             ),
           ),
           Expanded(
-            flex: 4,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _faseDos
-                        ? "🚗 Llevando al cliente a su destino..."
-                        : "📍 Dirígete a recoger al cliente",
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 20),
+            flex: 3,
+            child: Stack(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(screenWidth * 0.050),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: [
+                      BoxShadow(blurRadius: 10, color: Colors.black12)
+                    ],
                   ),
-                  const SizedBox(height: 10),
-                  Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const CircleAvatar(
-                        radius: 30,
-                        backgroundColor: Colors.grey,
-                        child: Icon(Icons.person, color: Colors.white),
+                      Text(
+                        _faseDos
+                            ? "🚗 Llevando al cliente a su destino..."
+                            : "📍 Dirígete a recoger al cliente",
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: fontSize + 2),
                       ),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("🚶 $_nombreCliente",
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            Text("📍 $_direccionCliente"),
-                          ],
+                      SizedBox(height: screenHeight * 0.01),
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: screenWidth * 0.08,
+                            backgroundColor: Colors.grey,
+                            child: Icon(Icons.person, size: screenWidth * 0.08),
+                          ),
+                          SizedBox(width: screenWidth * 0.04),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("🚶 $_nombreCliente",
+                                    style: TextStyle(
+                                        fontSize: fontSize,
+                                        fontWeight: FontWeight.bold)),
+                                SizedBox(height: screenHeight * 0.005),
+                                Text("📍 $_direccionCliente",
+                                    style: TextStyle(fontSize: fontSize * 0.9)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: screenHeight * 0.015),
+                      Text("🛣️ Progreso del viaje:",
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: fontSize)),
+                      const SizedBox(height: 6),
+                      Center(
+                        child: Text(
+                          "Recoger                                              Llevar",
+                          style: TextStyle(
+                            fontSize: fontSize * 0.75,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black54,
+                          ),
                         ),
+                      ),
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          LinearPercentIndicator(
+                            lineHeight: screenHeight * 0.017,
+                            percent: _progreso,
+                            barRadius: const Radius.circular(10),
+                            progressColor: Colors.amber,
+                            backgroundColor: Colors.grey[300]!,
+                            padding: EdgeInsets.zero,
+                          ),
+                          Icon(Icons.arrow_drop_down,
+                              color: Colors.black, size: fontSize + 6),
+                        ],
+                      ),
+                      SizedBox(height: screenHeight * 0.015),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          if (!_faseDos)
+                            CustomButton(
+                              text: "Ya llegué",
+                              onPressed:
+                                  _cercaDelCliente ? _llegueAlCliente : null,
+                              isLoading: _llegandoCliente,
+                              width: screenWidth * 0.38,
+                              height: screenHeight * 0.06,
+                              fontSize: fontSize,
+                              icon: Icon(Icons.location_on,
+                                  size: fontSize, color: Colors.white),
+                            ),
+                          if (_faseDos)
+                            CustomButton(
+                              text: "Terminar viaje",
+                              onPressed:
+                                  _cercaDelDestino ? _terminarViaje : null,
+                              isLoading: _terminandoViaje,
+                              width: screenWidth * 0.44,
+                              height: screenHeight * 0.06,
+                              fontSize: fontSize,
+                              icon: Icon(Icons.flag,
+                                  size: fontSize, color: Colors.white),
+                            ),
+                          CustomButton(
+                            text: "Google Maps",
+                            onPressed: () {
+                              final destino = _faseDos
+                                  ? _ubicacionDestino
+                                  : _ubicacionCliente;
+                              if (destino != null) _abrirEnGoogleMaps(destino);
+                            },
+                            width: screenWidth * 0.45,
+                            height: screenHeight * 0.06,
+                            fontSize: fontSize,
+                            icon: Icon(Icons.map,
+                                color: Colors.white, size: fontSize),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  const Text("🛣️ Progreso del viaje:",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  const Center(
-                    child: Text(
-                      "Recoger                                              Llevar",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      LinearPercentIndicator(
-                        lineHeight: 14.0,
-                        percent: _progreso,
-                        barRadius: const Radius.circular(10),
-                        progressColor: Colors.amber,
-                        backgroundColor: Colors.grey[300]!,
-                        padding: EdgeInsets.zero,
-                      ),
-                      const Positioned(
-                        child: Icon(
-                          Icons.arrow_drop_down,
-                          color: Colors.black,
-                          size: 24,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      if (!_faseDos)
-                        CustomButton(
-                          text: "Ya llegué",
-                          onPressed: _cercaDelCliente
-                              ? () => _llegueAlCliente()
-                              : null,
-                          isLoading: _llegandoCliente,
-                          width: 140,
-                          height: 45,
-                          fontSize: 14,
-                          icon: const Icon(Icons.location_on,
-                              color: Colors.white),
-                        ),
-                      if (_faseDos)
-                        CustomButton(
-                          text: "Terminar viaje",
-                          onPressed:
-                              _cercaDelDestino ? () => _terminarViaje() : null,
-                          isLoading: _terminandoViaje,
-                          width: 170,
-                          height: 45,
-                          fontSize: 14,
-                          icon: const Icon(Icons.flag, color: Colors.white),
-                        ),
-                      CustomButton(
-                        text: "Simular",
-                        onPressed: _simularMovimiento,
-                        width: 130,
-                        height: 45,
-                        fontSize: 14,
-                        icon: const Icon(Icons.directions_run,
-                            color: Colors.white),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                  CustomButton(
-                    text: "Abrir en Google Maps",
-                    onPressed: () {
-                      final destino =
-                          _faseDos ? _ubicacionDestino : _ubicacionCliente;
-                      if (destino != null) _abrirEnGoogleMaps(destino);
+                ),
+
+                // ✅ Botón flotante circular para notificar al cliente
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: FloatingActionButton(
+                    backgroundColor: Colors.amber,
+                    onPressed: () async {
+                      // Mostrar notificación local
+                      const AndroidNotificationDetails androidDetails =
+                          AndroidNotificationDetails(
+                        'canal_boton_llamada',
+                        'Notificación al cliente',
+                        importance: Importance.max,
+                        priority: Priority.high,
+                        playSound: true,
+                        enableVibration: true,
+                        icon: '@mipmap/ic_launcher',
+                      );
+                      const NotificationDetails notiDetails =
+                          NotificationDetails(android: androidDetails);
+
+                      await flutterLocalNotificationsPlugin.show(
+                        1,
+                        '🚖 Taxi Ya',
+                        'Tu conductor está fuera esperándote 🛎️',
+                        notiDetails,
+                      );
+
+                      // Vibración adicional
+                      if (await Vibration.hasVibrator() ?? false) {
+                        Vibration.vibrate(duration: 600);
+                      }
                     },
-                    width: double.infinity,
-                    height: 45,
-                    fontSize: 14,
-                    icon: const Icon(Icons.map, color: Colors.white),
+                    child:
+                        Icon(Icons.notifications_active, color: Colors.black),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
-}
 
-Future<List<LatLng>> obtenerRutaPorCalles(LatLng origen, LatLng destino) async {
-  final url = Uri.parse(
-    'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
-  );
+  Future<List<LatLng>> obtenerRutaPorCalles(
+      LatLng origen, LatLng destino) async {
+    final url = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+    );
 
-  try {
-    final response = await http.get(
-      url,
-      headers: {
-        'User-Agent': 'FlutterApp/1.0',
-        'Accept': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 10));
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'User-Agent': 'FlutterApp/1.0',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['routes'].isNotEmpty) {
-        final coordinates = data['routes'][0]['geometry']['coordinates'];
-        return coordinates
-            .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
-            .toList();
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'];
+          return coordinates
+              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+              .toList();
+        }
+      } else {
+        debugPrint("HTTP error: ${response.statusCode}");
       }
-    } else {
-      debugPrint("HTTP error: ${response.statusCode}");
+    } on SocketException catch (e) {
+      debugPrint("No se pudo conectar con OSRM: $e");
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on http.ClientException catch (e) {
+      debugPrint("ClientException: $e");
+    } catch (e) {
+      debugPrint("Otro error: $e");
     }
-  } on SocketException catch (e) {
-    debugPrint("No se pudo conectar con OSRM: $e");
-  } on TimeoutException {
-    debugPrint("Tiempo de espera agotado al conectar con OSRM");
-  } on http.ClientException catch (e) {
-    debugPrint("ClientException: $e");
-  } catch (e) {
-    debugPrint("Otro error: $e");
-  }
 
-  return [];
+    return [];
+  }
 }

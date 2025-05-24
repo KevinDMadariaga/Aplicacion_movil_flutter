@@ -1,81 +1,66 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
-import 'package:taxi_app/screens/conductor/mapa_conductor.dart';
+import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
 
-class RegistroConductor extends StatefulWidget {
-  const RegistroConductor({super.key});
+class RegistroCliente extends StatefulWidget {
+  const RegistroCliente({super.key});
 
   @override
-  State<RegistroConductor> createState() => _RegistroConductorState();
+  State<RegistroCliente> createState() => _RegistroClienteState();
 }
 
-class _RegistroConductorState extends State<RegistroConductor> {
+class _RegistroClienteState extends State<RegistroCliente> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _nombreController = TextEditingController();
   final _telefonoController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  final _placaController = TextEditingController();
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   bool _isPasswordVisible = false;
+  bool _passwordValido = false;
 
-  // Función para guardar los datos en Firestore
   Future<void> _guardarDatosEnFirestore(UserCredential userCredential) async {
-    await _firestore.collection("conductor").doc(userCredential.user!.uid).set({
-      "tipoUsuario": "conductor",
-      "conductorId": userCredential.user!.uid,
+    await _firestore.collection("cliente").doc(userCredential.user!.uid).set({
+      "tipoUsuario": "cliente",
+      "clienteId": userCredential.user!.uid,
       "nombre": _nombreController.text.trim(),
       "telefono": _telefonoController.text.trim(),
       "correo": _emailController.text.trim(),
       "contraseña": _passwordController.text.trim(),
-      "conectado": true, // Agregar el campo 'conectado' con valor 'true'
-      "placa": _placaController.text.trim(),
     });
   }
 
-  Future<void> _registrarConductor() async {
+  Future<void> _registrarCliente() async {
     if (_formKey.currentState!.validate()) {
       try {
-        final signInMethods = await _auth
-            .fetchSignInMethodsForEmail(_emailController.text.trim());
-
-        if (signInMethods.isNotEmpty) {
-          _showDialog(
-              "Error", "Este correo ya está registrado. Intenta con otro.");
-          return;
-        }
-
         UserCredential userCredential =
             await _auth.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-
         await _guardarDatosEnFirestore(userCredential);
 
-        // Mostrar mensaje de éxito en medio de la pantalla
-        _showSuccessMessage();
-      } on FirebaseAuthException catch (e) {
-        if (e.code == 'email-already-in-use') {
-          _showDialog(
-              "Error", "Este correo ya está registrado. Intenta con otro.");
-        } else {
-          _showDialog("Error", e.message ?? "Ocurrió un error inesperado.");
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Registro exitoso")),
+        );
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MapaCliente()),
+        );
       } catch (e) {
-        _showDialog("Error", "Ocurrió un error inesperado.");
+        _showDialog("Error", e.toString());
       }
     }
   }
 
-  // Mostrar un diálogo con mensajes
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -92,67 +77,15 @@ class _RegistroConductorState extends State<RegistroConductor> {
     );
   }
 
-  // Mostrar mensaje de éxito y redirigir
-  void _showSuccessMessage() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.check_circle,
-              color: Colors.green,
-              size: 50,
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              "¡Registro exitoso!",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            const Text("Bienvenido al sistema."),
-          ],
-        ),
-      ),
-    );
-
-    // Después de un retraso de 2 segundos, se redirige a la pantalla de MapaConductor
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-            builder: (context) =>
-                const MapaConductor()), // Asegúrate de que MapaConductor esté disponible
-      );
-    });
-  }
-
-  String? _validateCorreo(String? value) {
-    if (value == null || value.isEmpty) return "Ingrese su correo";
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value))
-      return "Correo inválido";
-    return null;
-  }
-
-  String? _validateTelefono(String? value) {
-    if (value == null || value.isEmpty) return "Ingrese su número de teléfono";
-    if (!RegExp(r'^\d{10}$').hasMatch(value))
-      return "Número inválido (10 dígitos)";
-    return null;
-  }
-
-  String? _validateContrasena(String? value) {
-    if (value == null || value.isEmpty) return "Ingrese su contraseña";
-    if (value.length < 6) return "Debe tener al menos 6 caracteres";
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final fontSize = screenWidth * 0.045;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Registro de Conductor"),
+        title: const Text("Registro de Cliente"),
         backgroundColor: Colores.amarillo,
       ),
       body: Padding(
@@ -163,68 +96,78 @@ class _RegistroConductorState extends State<RegistroConductor> {
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Image.asset(
                     'assets/img/taxi.png',
-                    width: 200.0,
-                    height: 170.0,
+                    width: screenWidth * 0.5,
+                    height: screenHeight * 0.2,
                   ),
+                  SizedBox(height: screenHeight * 0.03),
 
-                  SizedBox(height: 30),
-                  // Campo de Nombre
+                  // Campo Nombre
                   TextFormField(
                     controller: _nombreController,
+                    style: TextStyle(fontSize: fontSize),
                     decoration: InputDecoration(
                       labelText: "Nombre Completo",
+                      labelStyle: TextStyle(fontSize: fontSize),
                       prefixIcon: const Icon(Icons.person),
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                    ),
+                    validator: (value) => value == null || value.isEmpty
+                        ? "Ingrese su nombre completo"
+                        : null,
+                  ),
+                  SizedBox(height: screenHeight * 0.02),
+
+                  // Campo Teléfono
+                  TextFormField(
+                    controller: _telefonoController,
+                    keyboardType: TextInputType.phone,
+                    style: TextStyle(fontSize: fontSize),
+                    decoration: InputDecoration(
+                      labelText: "Número de Teléfono",
+                      labelStyle: TextStyle(fontSize: fontSize),
+                      prefixIcon: const Icon(Icons.phone),
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return "Ingrese su nombre completo";
+                        return "Ingrese su número de teléfono";
+                      }
+                      if (!RegExp(r'^\d{10}$').hasMatch(value)) {
+                        return "Número inválido (10 dígitos)";
                       }
                       return null;
                     },
                   ),
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.02),
-                  // Campo de Número de Teléfono
-                  TextFormField(
-                    controller: _placaController,
-                    decoration: InputDecoration(
-                      labelText: "Numero de Placa",
-                      prefixIcon: const Icon(Icons.perm_identity),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.02),
-                  // Campo de Número de Teléfono
-                  TextFormField(
-                    controller: _telefonoController,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: "Número de Teléfono",
-                      prefixIcon: const Icon(Icons.phone),
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: _validateTelefono,
-                  ),
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.02),
-                  // Campo de Correo Electrónico
+                  SizedBox(height: screenHeight * 0.02),
+
+                  // Campo Correo
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
+                    style: TextStyle(fontSize: fontSize),
                     decoration: InputDecoration(
                       labelText: "Correo Electrónico",
+                      labelStyle: TextStyle(fontSize: fontSize),
                       prefixIcon: const Icon(Icons.email),
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
                     ),
-                    validator: _validateCorreo,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Ingrese su correo";
+                      }
+                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                        return "Correo inválido";
+                      }
+                      return null;
+                    },
                   ),
-                  const SizedBox(height: 16.0),
-                  // Campo de Contraseña
-                  // CAMPO: Contraseña
+                  SizedBox(height: screenHeight * 0.02),
+
+// CAMPO: Contraseña
                   TextFormField(
                     controller: _passwordController,
                     obscureText: !_isPasswordVisible,
@@ -262,12 +205,11 @@ class _RegistroConductorState extends State<RegistroConductor> {
                               _passwordController.text.length < 6
                           ? "Mínimo 6 caracteres"
                           : null,
-                      border: const OutlineInputBorder(),
+                      border: OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 16),
-
-// CAMPO: Confirmar Contraseña
+                  // CAMPO: Confirmar Contraseña
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: !_isPasswordVisible,
@@ -297,17 +239,17 @@ class _RegistroConductorState extends State<RegistroConductor> {
                                   _passwordController.text
                               ? "Las contraseñas no coinciden"
                               : null,
-                      border: const OutlineInputBorder(),
+                      border: OutlineInputBorder(),
                     ),
                   ),
 
-                  const SizedBox(height: 24.0),
+                  SizedBox(height: screenHeight * 0.04),
                   CustomButton(
                     text: 'Registrar',
-                    onPressed: _registrarConductor,
-                    width: 100,
+                    onPressed: _registrarCliente,
+                    width: 30,
                     height: 50,
-                    fontSize: 16,
+                    fontSize: fontSize,
                   ),
                 ],
               ),

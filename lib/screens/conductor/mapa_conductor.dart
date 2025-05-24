@@ -3,8 +3,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/controllers/conductor_controller.dart';
-import 'package:taxi_app/screens/cliente/historial_cliente.dart';
 import 'package:taxi_app/screens/conductor/historial_viajes_conductor.dart';
+
 import 'package:taxi_app/screens/conductor/ruta_cliente_conductor.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -230,7 +230,7 @@ class _MapaConductorState extends State<MapaConductor> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const HistorialCliente(),
+                      builder: (_) => const HistorialConductor(),
                     ),
                   );
                 },

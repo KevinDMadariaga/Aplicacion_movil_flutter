@@ -19,24 +19,20 @@ class _LoginConductorState extends State<LoginConductor> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Función para iniciar sesión
   Future<void> _iniciarSesion() async {
     if (_formKey.currentState!.validate()) {
       try {
-        // Verificar si el correo está registrado en la tabla "conductor"
         final QuerySnapshot result = await _firestore
             .collection('conductor')
             .where('correo', isEqualTo: _emailController.text.trim())
             .get();
 
         if (result.docs.isEmpty) {
-          // Mostrar un mensaje si el correo no está registrado
           _showDialog("Error", "Este usuario no está permitido");
           return;
         }
 
-        UserCredential userCredential =
-            await FirebaseAuth.instance.signInWithEmailAndPassword(
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
@@ -57,7 +53,6 @@ class _LoginConductorState extends State<LoginConductor> {
     }
   }
 
-  // Función para mostrar un diálogo
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -67,28 +62,21 @@ class _LoginConductorState extends State<LoginConductor> {
         ),
         title: Row(
           children: [
-            Icon(
-              Icons.info,
-              color: Colors.blue,
-            ),
+            const Icon(Icons.info, color: Colors.blue),
             const SizedBox(width: 8.0),
-            Text(
-              title,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
+            Text(title,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           ],
         ),
-        content: Text(
-          message,
-          style: TextStyle(fontSize: 16, color: Colors.black87),
-        ),
+        content: Text(message,
+            style: const TextStyle(fontSize: 16, color: Colors.black87)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text(
-              "OK",
-              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-            ),
+            child: const Text("OK",
+                style:
+                    TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -97,84 +85,86 @@ class _LoginConductorState extends State<LoginConductor> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final height = MediaQuery.of(context).size.height;
+    final fontScale = width * 0.045;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Iniciar Sesión Conductor"),
+        title: Text("Conductor", style: TextStyle(fontSize: fontScale)),
         backgroundColor: Colores.amarillo,
       ),
       body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Image.asset(
-                  'assets/img/Login.jpg',
-                  width: 250.0, // Ancho en píxeles
-                  height: 230.0,
+        padding: EdgeInsets.symmetric(horizontal: width * 0.08),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              SizedBox(height: height * 0.04),
+              Image.asset(
+                'assets/img/Login.jpg',
+                width: width * 0.65,
+                height: height * 0.25,
+              ),
+              SizedBox(height: height * 0.04),
+              TextFormField(
+                controller: _emailController,
+                style: TextStyle(fontSize: fontScale),
+                decoration: InputDecoration(
+                  labelText: "Correo Electrónico",
+                  labelStyle: TextStyle(fontSize: fontScale),
+                  prefixIcon: const Icon(Icons.email),
+                  border: const OutlineInputBorder(),
                 ),
-                const SizedBox(height: 40.0),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: InputDecoration(
-                    labelText: "Correo Electrónico",
-                    prefixIcon: const Icon(Icons.email),
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.emailAddress,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return "Ingrese su correo";
-                    }
-                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
-                      return "Correo inválido";
-                    }
-                    return null;
-                  },
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  if (value == null || value.isEmpty)
+                    return "Ingrese su correo";
+                  if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                    return "Correo inválido";
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: height * 0.025),
+              TextFormField(
+                controller: _passwordController,
+                style: TextStyle(fontSize: fontScale),
+                decoration: InputDecoration(
+                  labelText: "Contraseña",
+                  labelStyle: TextStyle(fontSize: fontScale),
+                  prefixIcon: const Icon(Icons.lock),
+                  border: const OutlineInputBorder(),
                 ),
-                const SizedBox(height: 16.0),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: InputDecoration(
-                    labelText: "Contraseña",
-                    prefixIcon: const Icon(Icons.lock),
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return "Ingrese su contraseña";
-                    }
-                    return null;
-                  },
+                obscureText: true,
+                validator: (value) => (value == null || value.isEmpty)
+                    ? "Ingrese su contraseña"
+                    : null,
+              ),
+              SizedBox(height: height * 0.04),
+              CustomButton(
+                text: 'Iniciar Sesión',
+                onPressed: _iniciarSesion,
+                width: width * 0.45,
+                height: 50,
+                fontSize: width * 0.05,
+              ),
+              SizedBox(height: height * 0.02),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const RegistroConductor()),
+                  );
+                },
+                child: Text(
+                  "¿No tienes cuenta? Regístrate",
+                  style: TextStyle(
+                      fontSize: fontScale * 0.95, color: Colores.amarillo),
                 ),
-                const SizedBox(height: 24.0),
-                CustomButton(
-                  text: 'Iniciar Sesión',
-                  onPressed: _iniciarSesion,
-                  width:
-                      MediaQuery.of(context).size.width * 0.6, // Ancho dinámico
-                  height: 50, // Alto fijo
-                  fontSize: 16,
-                ),
-                TextButton(
-                  onPressed: () {
-                    // Ir a la página de registro
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const RegistroConductor()),
-                    );
-                  },
-                  child: const Text(
-                    "¿No tienes cuenta? Regístrate",
-                    style: TextStyle(color: Colores.amarillo),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

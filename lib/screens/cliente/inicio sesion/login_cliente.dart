@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
-import 'package:taxi_app/screens/cliente/registro_cliente.dart';
+import 'package:taxi_app/screens/cliente/inicio sesion/registro_cliente.dart';
 
 class LoginCliente extends StatefulWidget {
   const LoginCliente({super.key});
@@ -25,12 +25,11 @@ class _LoginClienteState extends State<LoginCliente> {
     _verificarUsuarioLogueado();
   }
 
-  // Verificar si el usuario ya está logueado
   void _verificarUsuarioLogueado() {
     final User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       Future.microtask(() {
-        if (!mounted) return; // 👈 Solución
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MapaCliente()),
@@ -53,8 +52,7 @@ class _LoginClienteState extends State<LoginCliente> {
           return;
         }
 
-        UserCredential userCredential =
-            await FirebaseAuth.instance.signInWithEmailAndPassword(
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
@@ -77,7 +75,6 @@ class _LoginClienteState extends State<LoginCliente> {
     }
   }
 
-  // Función para mostrar un diálogo
   void _showDialog(String title, String message) {
     showDialog(
       context: context,
@@ -87,20 +84,17 @@ class _LoginClienteState extends State<LoginCliente> {
         ),
         title: Row(
           children: [
-            Icon(
-              Icons.info,
-              color: Colors.blue,
-            ),
+            const Icon(Icons.info, color: Colors.blue),
             const SizedBox(width: 8.0),
             Text(
               title,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
           ],
         ),
         content: Text(
           message,
-          style: TextStyle(fontSize: 16, color: Colors.black87),
+          style: const TextStyle(fontSize: 16),
         ),
         actions: [
           TextButton(
@@ -117,31 +111,35 @@ class _LoginClienteState extends State<LoginCliente> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final height = MediaQuery.of(context).size.height;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Iniciar Sesión Cliente"),
+        title: const Text("Cliente"),
         backgroundColor: Colores.amarillo,
       ),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: EdgeInsets.symmetric(horizontal: width * 0.08),
           child: Form(
             key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                SizedBox(height: height * 0.05),
                 Image.asset(
                   'assets/img/Login.jpg',
-                  width: 250.0,
-                  height: 230.0,
+                  width: width * 0.7,
+                  height: height * 0.25,
+                  fit: BoxFit.contain,
                 ),
-                const SizedBox(height: 40.0),
+                SizedBox(height: height * 0.05),
                 TextFormField(
                   controller: _emailController,
                   decoration: InputDecoration(
                     labelText: "Correo Electrónico",
                     prefixIcon: const Icon(Icons.email),
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   validator: (value) {
@@ -154,13 +152,13 @@ class _LoginClienteState extends State<LoginCliente> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 16.0),
+                SizedBox(height: height * 0.02),
                 TextFormField(
                   controller: _passwordController,
                   decoration: InputDecoration(
                     labelText: "Contraseña",
                     prefixIcon: const Icon(Icons.lock),
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                   obscureText: true,
                   validator: (value) {
@@ -170,25 +168,29 @@ class _LoginClienteState extends State<LoginCliente> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 24.0),
+                SizedBox(height: height * 0.04),
                 CustomButton(
                   text: 'Iniciar Sesión',
                   onPressed: _iniciarSesion,
-                  width: 202,
+                  width: width * 0.45,
                   height: 50,
-                  fontSize: 16,
+                  fontSize: width * 0.05,
                 ),
                 TextButton(
                   onPressed: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (context) => const RegistroCliente()),
+                          builder: (_) => const RegistroCliente()),
                     );
                   },
-                  child: const Text(
+                  child: Text(
                     "¿No tienes cuenta? Regístrate",
-                    style: TextStyle(color: Colores.amarillo),
+                    style: TextStyle(
+                      color: Colores.amarillo,
+                      fontSize: width * 0.038,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
