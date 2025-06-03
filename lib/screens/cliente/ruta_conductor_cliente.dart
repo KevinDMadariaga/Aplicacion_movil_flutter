@@ -13,7 +13,6 @@ import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/main.dart';
 import 'package:taxi_app/screens/cliente/resumen_cliente.dart';
 import 'package:vibration/vibration.dart';
-import 'package:taxi_app/utils/notificaciones.dart';
 
 class ClienteRecogida extends StatefulWidget {
   final String solicitudId;
@@ -25,7 +24,7 @@ class ClienteRecogida extends StatefulWidget {
 }
 
 class _ClienteRecogidaState extends State<ClienteRecogida> {
-  late GoogleMapController _mapController;
+  GoogleMapController? _mapController;
   LatLng? _ubicacionInicial;
   LatLng? _ubicacionDestino;
   LatLng? _ubicacionConductor;
@@ -68,16 +67,16 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
       final data = doc.data()!;
       final nuevoEstado = data['estado'];
 
-      // SOLO NAVEGAR si el estado es 'terminado'
       if (nuevoEstado == 'terminado') {
         if (!mounted) return;
-        Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => ResumenSolicitud(solicitudId: widget.solicitudId),
-        ));
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => ResumenSolicitud(solicitudId: widget.solicitudId),
+          ),
+        );
         return;
       }
 
-      // Actualizar estado local según el estado en Firestore
       final nuevaFaseDos = nuevoEstado == 'llego';
       if (nuevaFaseDos != _faseDos && mounted) {
         setState(() {
@@ -89,14 +88,12 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         });
       }
 
-      // Actualizar ubicaciones y conductor para la UI
       _ubicacionInicial = LatLng(data['ubicacion_inicial'].latitude,
           data['ubicacion_inicial'].longitude);
       _ubicacionDestino = LatLng(data['ubicacion_seleccionada'].latitude,
           data['ubicacion_seleccionada'].longitude);
       _conductorId = data['conductorId'];
 
-      // Actualizar datos conductor y ubicacion
       await _obtenerDatosConductor(_conductorId!);
       _escucharUbicacionConductor(_conductorId!);
     });
@@ -123,6 +120,7 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         .listen((doc) async {
       if (!mounted || !doc.exists || !doc.data()!.containsKey('ubicacion'))
         return;
+
       GeoPoint geo = doc['ubicacion'];
       LatLng nuevaUbicacion = LatLng(geo.latitude, geo.longitude);
       _ubicacionConductor = nuevaUbicacion;
@@ -141,65 +139,39 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         infoWindow: InfoWindow(title: _nombreConductor),
       );
-      _markers.add(_markerConductor!);
-      _mapController.animateCamera(CameraUpdate.newLatLng(nuevaPos));
+      setState(() {
+        _markers.add(_markerConductor!);
+      });
+      _mapController?.animateCamera(CameraUpdate.newLatLng(nuevaPos));
     } else {
       final anterior = _markerConductor!;
-      double t = 0.0;
-      Timer.periodic(const Duration(milliseconds: 16), (timer) {
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
-
-        t += 0.05;
-        if (t >= 1.0) timer.cancel();
-
-        final lat = anterior.position.latitude +
-            (nuevaPos.latitude - anterior.position.latitude) * t;
-        final lng = anterior.position.longitude +
-            (nuevaPos.longitude - anterior.position.longitude) * t;
-        final pos = LatLng(lat, lng);
-
-        if (!mounted) return;
-        setState(() {
-          _markerConductor = anterior.copyWith(positionParam: pos);
-          _markers.removeWhere((m) => m.markerId.value == "conductor");
-          _markers.add(_markerConductor!);
-        });
+      _markerConductor = anterior.copyWith(positionParam: nuevaPos);
+      setState(() {
+        _markers.removeWhere((m) => m.markerId.value == "conductor");
+        _markers.add(_markerConductor!);
       });
     }
   }
 
   Future<void> _obtenerDireccionConductor() async {
-    if (_ubicacionConductor != null) {
-      try {
-        List<Placemark> placemarks = await placemarkFromCoordinates(
-          _ubicacionConductor!.latitude,
-          _ubicacionConductor!.longitude,
-        ).timeout(const Duration(seconds: 5)); // Control explícito de timeout
+    if (_ubicacionConductor == null) return;
 
-        if (placemarks.isNotEmpty && mounted) {
-          final lugar = placemarks.first;
-          setState(() {
-            _direccionConductor = "${lugar.street}, ${lugar.locality}";
-          });
-        }
-      } on TimeoutException {
-        debugPrint("Timeout al obtener dirección del conductor");
-        if (mounted) {
-          setState(() {
-            _direccionConductor = "Sin dirección (tiempo de espera agotado)";
-          });
-        }
-      } catch (e) {
-        debugPrint("Error al obtener dirección del conductor: $e");
-        if (mounted) {
-          setState(() {
-            _direccionConductor = "Dirección no disponible";
-          });
-        }
+    try {
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        _ubicacionConductor!.latitude,
+        _ubicacionConductor!.longitude,
+      ).timeout(const Duration(seconds: 5));
+
+      if (placemarks.isNotEmpty && mounted) {
+        final lugar = placemarks.first;
+        setState(() {
+          _direccionConductor = "${lugar.street}, ${lugar.locality}";
+        });
       }
+    } catch (_) {
+      setState(() {
+        _direccionConductor = "Dirección no disponible";
+      });
     }
   }
 
@@ -244,11 +216,12 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
       ),
     );
 
-    _mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+    _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
   void _actualizarProgreso() {
     if (_ubicacionConductor == null) return;
+
     final destino = _faseDos ? _ubicacionDestino : _ubicacionInicial;
     final distanciaActual = Geolocator.distanceBetween(
       _ubicacionConductor!.latitude,
@@ -267,8 +240,8 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     }
 
     _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
-
     if (!mounted) return;
+
     setState(() {
       _progreso =
           _faseDos ? 0.5 + (_progresoActual * 0.5) : _progresoActual * 0.5;
@@ -278,163 +251,8 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
   Future<void> _mostrarNotificacionLocal() async {
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-      'canal_solicitudes', // ID del canal
-      'Solicitudes', // Nombre visible del canal
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true, // 🔊 Sonido predeterminado del sistema
-      enableVibration: true, // ✅ Activa vibración
-      icon: '@mipmap/ic_launcher', // Icono predeterminado
-    );
-
-    const NotificationDetails notiDetails =
-        NotificationDetails(android: androidDetails);
-
-    await flutterLocalNotificationsPlugin.show(
-      0,
-      '🚖 Conductor cerca', // TÍTULO
-      'Tu conductor está por llegar.', // MENSAJE
-      notiDetails,
-    );
-
-    // ✅ Vibración predeterminada
-    if (await Vibration.hasVibrator() ?? false) {
-      Vibration.vibrate(); // vibración simple estándar
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final fontSize = screenWidth * 0.045;
-    final iconSize = screenWidth * 0.07;
-
-    return Scaffold(
-      body: Column(
-        children: [
-          Expanded(
-            flex: 5,
-            child: GoogleMap(
-              initialCameraPosition:
-                  const CameraPosition(target: LatLng(0, 0), zoom: 14),
-              markers: _markers,
-              polylines: _polylines,
-              onMapCreated: (controller) => _mapController = controller,
-              myLocationEnabled: false,
-              zoomControlsEnabled: false,
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: Container(
-              padding: EdgeInsets.all(screenWidth * 0.04),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: screenWidth * 0.08,
-                        backgroundColor: Colors.grey,
-                      ),
-                      SizedBox(width: screenWidth * 0.04),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("🚖 $_nombreConductor",
-                                style: TextStyle(
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.bold)),
-                            SizedBox(height: screenHeight * 0.005),
-                            Text("🚗 Placa: $_placaConductor",
-                                style: TextStyle(
-                                    fontSize: fontSize * 0.95,
-                                    fontWeight: FontWeight.bold)),
-                            SizedBox(height: screenHeight * 0.005),
-                            Text("📍 $_direccionConductor",
-                                style: TextStyle(fontSize: fontSize * 0.9)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: screenHeight * 0.015),
-                  Text("🛣️ Progreso del viaje:",
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: fontSize)),
-                  SizedBox(height: screenHeight * 0.008),
-                  const Center(
-                    child: Text(
-                      "Llegada                                              Destino",
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ),
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      LinearPercentIndicator(
-                        lineHeight: screenHeight * 0.015,
-                        percent: _progreso,
-                        barRadius: const Radius.circular(10),
-                        progressColor: Colors.amber,
-                        backgroundColor: Colors.grey[300]!,
-                        padding: EdgeInsets.zero,
-                      ),
-                      Icon(Icons.arrow_drop_down,
-                          color: Colors.black, size: iconSize),
-                    ],
-                  ),
-                  SizedBox(height: screenHeight * 0.015),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      CustomButton(
-                        text: "Detalles",
-                        width: screenWidth * 0.35,
-                        height: screenHeight * 0.06,
-                        fontSize: fontSize,
-                        onPressed: () {
-                          debugPrint("Detalles presionado");
-                        },
-                      ),
-                      CustomButton(
-                        text: "Emergencia",
-                        width: screenWidth * 0.5,
-                        height: screenHeight * 0.06,
-                        fontSize: fontSize,
-                        icon: Icon(Icons.warning,
-                            size: iconSize, color: Colors.red),
-                        onPressed: () {
-                          debugPrint("Emergencia presionado");
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _mostrarNotificacionFueraDeCasa() async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-      'noti_fuera_casa',
-      'Notificación Fuera de Casa',
+      'canal_solicitudes',
+      'Solicitudes',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
@@ -446,14 +264,14 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         NotificationDetails(android: androidDetails);
 
     await flutterLocalNotificationsPlugin.show(
-      1,
-      '🚖 Tu conductor ha llegado',
-      'Tu conductor está afuera de tu casa',
+      0,
+      '🚖 Conductor cerca',
+      'Tu conductor está por llegar.',
       notiDetails,
     );
 
     if (await Vibration.hasVibrator() ?? false) {
-      Vibration.vibrate(duration: 800);
+      Vibration.vibrate();
     }
   }
 
@@ -474,17 +292,25 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
               .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
               .toList();
         }
-      } else {
-        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
       }
-    } on TimeoutException {
-      debugPrint("Tiempo de espera agotado al conectar con OSRM");
-    } on SocketException {
-      debugPrint("Error de red: no se pudo conectar con OSRM");
-    } catch (e) {
-      debugPrint("Error inesperado: $e");
-    }
-
+    } catch (_) {}
     return [];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: GoogleMap(
+        initialCameraPosition: const CameraPosition(
+          target: LatLng(0, 0),
+          zoom: 14,
+        ),
+        onMapCreated: (controller) => _mapController = controller,
+        markers: _markers,
+        polylines: _polylines,
+        myLocationEnabled: false,
+        zoomControlsEnabled: false,
+      ),
+    );
   }
 }

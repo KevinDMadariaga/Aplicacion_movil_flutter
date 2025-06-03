@@ -8,16 +8,21 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterL
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    // Aquí puedes enviar los errores a Crashlytics si quieres
+  };
+
   await Firebase.initializeApp();
 
   // Inicialización para Android
   const AndroidInitializationSettings androidInitSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-
   // Inicialización general
   final InitializationSettings initSettings = InitializationSettings(
     android: androidInitSettings,
   );
-
   // Inicializa el plugin
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 

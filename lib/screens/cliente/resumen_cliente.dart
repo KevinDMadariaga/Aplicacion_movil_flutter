@@ -1,6 +1,6 @@
+// Importaciones necesarias
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
 
@@ -15,24 +15,16 @@ class ResumenSolicitud extends StatefulWidget {
 }
 
 class _ResumenSolicitudState extends State<ResumenSolicitud> {
-  double _calificacion = 1.0; // Inicializado en 1 para que muestre estrella
+  double _calificacion = 1.0;
   bool _yaCalificada = false;
   String _direccionRecogida = "Cargando dirección...";
 
   String formatoHoraBogota(Timestamp timestamp) {
     final fecha = timestamp.toDate().toUtc().subtract(const Duration(hours: 5));
-    final dia = fecha.day.toString().padLeft(2, '0');
-    final mes = fecha.month.toString().padLeft(2, '0');
-    final anio = fecha.year;
-    final hora = fecha.hour.toString().padLeft(2, '0');
-    final minuto = fecha.minute.toString().padLeft(2, '0');
-    return "$dia/$mes/$anio $hora:$minuto";
-  }
-
-  String obtenerDuracion(Timestamp inicio, Timestamp fin) {
-    final duracion = fin.toDate().difference(inicio.toDate());
-    final minutos = duracion.inMinutes;
-    return "$minutos minuto${minutos == 1 ? '' : 's'}";
+    return "${fecha.day.toString().padLeft(2, '0')}/"
+        "${fecha.month.toString().padLeft(2, '0')}/"
+        "${fecha.year} ${fecha.hour.toString().padLeft(2, '0')}:"
+        "${fecha.minute.toString().padLeft(2, '0')}";
   }
 
   Future<void> _verificarYRecuperarCalificacion(String solicitudId) async {
@@ -53,41 +45,17 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
 
   Future<void> _obtenerDireccionRecogida(double lat, double lng) async {
     try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(lat, lng);
+      final placemarks = await placemarkFromCoordinates(lat, lng);
       if (placemarks.isNotEmpty && mounted) {
         final p = placemarks.first;
         setState(() {
-          _direccionRecogida =
-              "${p.street ?? ''}, ${p.locality ?? ''}, ${p.administrativeArea ?? ''}";
-        });
-      } else {
-        setState(() {
-          _direccionRecogida = "Dirección no disponible";
+          _direccionRecogida = "${p.street}, ${p.locality}, ${p.country}";
         });
       }
-    } catch (e) {
+    } catch (_) {
       setState(() {
-        _direccionRecogida = "Error al obtener dirección";
+        _direccionRecogida = "Dirección no disponible";
       });
-    }
-  }
-
-  String _mapearCalificacionTexto(int calificacion) {
-    switch (calificacion) {
-      case 0:
-        return "Mala experiencia";
-      case 1:
-        return "Malo";
-      case 2:
-        return "Regular";
-      case 3:
-        return "Bueno";
-      case 4:
-        return "Muy buen servicio";
-      case 5:
-        return "Excelente servicio";
-      default:
-        return "Sin calificación";
     }
   }
 
@@ -99,10 +67,7 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
         ? horaFin.toDate().difference(horaInicio.toDate()).inMinutes
         : 0;
 
-    await FirebaseFirestore.instance
-        .collection('historial viaje')
-        .doc() // genera ID único
-        .set({
+    await FirebaseFirestore.instance.collection('historial viaje').add({
       'solicitudId': widget.solicitudId,
       'clienteId': data['clienteId'],
       'conductorId': data['conductorId'],
@@ -127,6 +92,12 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final scale = width / 375;
+    final fontSize = 18 * scale;
+    final buttonHeight = 50 * scale;
+    final iconSize = 36 * scale;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: FutureBuilder<DocumentSnapshot>(
@@ -142,10 +113,11 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
           final data = snapshot.data!.data() as Map<String, dynamic>;
           final conductorId = data['conductorId'];
           final clienteId = data['clienteId'];
-          final direccionSeleccionada = data['direccion_seleccionada'];
           final geo = data['ubicacion_inicial'];
+          final direccionSeleccionada = data['direccion_seleccionada'];
           final horaInicio = data['hora_aceptacion'] as Timestamp?;
           final horaFin = data['fecha_terminacion'] as Timestamp?;
+          final valorServicio = data['valor_servicio'] ?? 0;
 
           _obtenerDireccionRecogida(geo.latitude, geo.longitude);
 
@@ -160,9 +132,8 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
               }
 
               final nombreConductor =
-                  (conductorSnapshot.data!['nombre'] ?? "Desconocido")
-                      .toString()
-                      .toUpperCase();
+                  conductorSnapshot.data!['nombre']?.toString().toUpperCase() ??
+                      "CONDUCTOR";
 
               return FutureBuilder<DocumentSnapshot>(
                 future: FirebaseFirestore.instance
@@ -179,199 +150,140 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
 
                   return SafeArea(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 16),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 24 * scale, vertical: 16 * scale),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Center(
                             child: Image.asset(
                               'assets/img/taxi.png',
-                              height: 150,
+                              height: 150 * scale,
                               fit: BoxFit.contain,
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          SizedBox(height: 24 * scale),
                           Row(
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.person,
-                                  size: 32, color: Color(0xFFFFD600)),
-                              const SizedBox(width: 8),
-                              Text(
-                                nombreConductor,
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                              ),
+                              Icon(Icons.person,
+                                  size: iconSize, color: Color(0xFFFFD600)),
+                              SizedBox(width: 8 * scale),
+                              Text(nombreConductor,
+                                  style: TextStyle(
+                                    fontSize: 22 * scale,
+                                    fontWeight: FontWeight.bold,
+                                  )),
                             ],
                           ),
-                          const SizedBox(height: 32),
-                          Text(
-                            "📍 Dirección de Recogida:",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          Text(
-                            _direccionRecogida,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            "🏁 Dirección de Destino:",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          Text(
-                            direccionSeleccionada ?? "No disponible",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          if (horaInicio != null) ...[
-                            Text(
-                              "🕓 Hora de Inicio:",
+                          SizedBox(height: 30 * scale),
+                          Text("📍 Dirección de Recogida:",
                               style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              formatoHoraBogota(horaInicio),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
+                                  fontSize: fontSize,
+                                  fontWeight: FontWeight.w600)),
+                          Text(_direccionRecogida,
+                              style: TextStyle(
+                                  fontSize: fontSize * 0.9,
+                                  fontWeight: FontWeight.bold)),
+                          SizedBox(height: 16 * scale),
+                          Text("🏁 Dirección de Destino:",
+                              style: TextStyle(
+                                  fontSize: fontSize,
+                                  fontWeight: FontWeight.w600)),
+                          Text(direccionSeleccionada ?? "No disponible",
+                              style: TextStyle(
+                                  fontSize: fontSize * 0.9,
+                                  fontWeight: FontWeight.bold)),
+                          if (horaInicio != null) ...[
+                            SizedBox(height: 16 * scale),
+                            Text("🕓 Hora de Inicio:",
+                                style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w600)),
+                            Text(formatoHoraBogota(horaInicio),
+                                style: TextStyle(
+                                    fontSize: fontSize * 0.9,
+                                    fontWeight: FontWeight.bold)),
                           ],
                           if (horaFin != null) ...[
-                            Text(
-                              "🕓 Hora de Finalización:",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              formatoHoraBogota(horaFin),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                            SizedBox(height: 16 * scale),
+                            Text("🕓 Hora de Finalización:",
+                                style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w600)),
+                            Text(formatoHoraBogota(horaFin),
+                                style: TextStyle(
+                                    fontSize: fontSize * 0.9,
+                                    fontWeight: FontWeight.bold)),
                           ],
-                          const SizedBox(height: 30),
-                          if (!_yaCalificada) ...[
-                            const Text(
-                              "😊 Califica tu experiencia:",
+                          SizedBox(height: 16 * scale),
+                          Text("💲 Valor del Servicio:",
                               style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 10),
+                                  fontSize: fontSize,
+                                  fontWeight: FontWeight.w600)),
+                          Text(
+                            valorServicio > 0
+                                ? "\$${valorServicio.toString()}"
+                                : "No disponible",
+                            style: TextStyle(
+                                fontSize: fontSize * 0.9,
+                                fontWeight: FontWeight.bold),
+                          ),
+                          SizedBox(height: 16 * scale),
+                          if (!_yaCalificada) ...[
+                            Text("😊 Califica tu experiencia:",
+                                style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w600)),
+                            SizedBox(height: 16 * scale),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: [
-                                GestureDetector(
-                                  onTap: () =>
-                                      setState(() => _calificacion = 1),
+                              children: [1, 2, 3].map((int valor) {
+                                final color = valor == 1
+                                    ? Colors.red
+                                    : valor == 2
+                                        ? Colors.orange
+                                        : Colors.green;
+                                final emoji = valor == 1
+                                    ? "😡"
+                                    : valor == 2
+                                        ? "🙂"
+                                        : "😍";
+                                final label = valor == 1
+                                    ? "Malo"
+                                    : valor == 2
+                                        ? "Bueno"
+                                        : "Excelente";
+                                return GestureDetector(
+                                  onTap: () => setState(
+                                      () => _calificacion = valor.toDouble()),
                                   child: Column(
                                     children: [
-                                      Text(
-                                        "😡",
-                                        style: TextStyle(
-                                          fontSize: 48,
-                                          color: _calificacion == 1
-                                              ? Colors.red
-                                              : Colors.grey,
-                                        ),
-                                      ),
-                                      Text("Malo",
+                                      Text(emoji,
                                           style: TextStyle(
-                                            color: _calificacion == 1
-                                                ? Colors.red
+                                              fontSize: 42 * scale,
+                                              color: _calificacion == valor
+                                                  ? color
+                                                  : Colors.grey)),
+                                      Text(label,
+                                          style: TextStyle(
+                                            fontSize: 14 * scale,
+                                            color: _calificacion == valor
+                                                ? color
                                                 : Colors.grey,
-                                            fontWeight: _calificacion == 1
+                                            fontWeight: _calificacion == valor
                                                 ? FontWeight.bold
                                                 : FontWeight.normal,
                                           )),
                                     ],
                                   ),
-                                ),
-                                GestureDetector(
-                                  onTap: () =>
-                                      setState(() => _calificacion = 2),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        "🙂",
-                                        style: TextStyle(
-                                          fontSize: 48,
-                                          color: _calificacion == 2
-                                              ? Colors.orange
-                                              : Colors.grey,
-                                        ),
-                                      ),
-                                      Text("Bueno",
-                                          style: TextStyle(
-                                            color: _calificacion == 2
-                                                ? Colors.orange
-                                                : Colors.grey,
-                                            fontWeight: _calificacion == 2
-                                                ? FontWeight.bold
-                                                : FontWeight.normal,
-                                          )),
-                                    ],
-                                  ),
-                                ),
-                                GestureDetector(
-                                  onTap: () =>
-                                      setState(() => _calificacion = 3),
-                                  child: Column(
-                                    children: [
-                                      Text(
-                                        "😍",
-                                        style: TextStyle(
-                                          fontSize: 48,
-                                          color: _calificacion == 3
-                                              ? Colors.green
-                                              : Colors.grey,
-                                        ),
-                                      ),
-                                      Text("Excelente",
-                                          style: TextStyle(
-                                            color: _calificacion == 3
-                                                ? Colors.green
-                                                : Colors.grey,
-                                            fontWeight: _calificacion == 3
-                                                ? FontWeight.bold
-                                                : FontWeight.normal,
-                                          )),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                                );
+                              }).toList(),
                             ),
-                            const SizedBox(height: 20),
+                            SizedBox(height: 24 * scale),
                           ],
                           SizedBox(
-                            width: MediaQuery.of(context).size.width * 0.8,
-                            height: 50,
+                            width: width * 0.8,
+                            height: buttonHeight,
                             child: ElevatedButton(
                               onPressed: () async {
                                 if (_yaCalificada) {
@@ -391,30 +303,30 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
                                 } else {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                        content: Text(
-                                            "Por favor selecciona una calificación.")),
+                                      content: Text(
+                                          "Por favor selecciona una calificación."),
+                                    ),
                                   );
                                 }
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFFFD600),
                                 foregroundColor: Colors.black,
-                                textStyle: const TextStyle(
-                                  fontSize: 18,
+                                textStyle: TextStyle(
+                                  fontSize: 16 * scale,
                                   fontWeight: FontWeight.bold,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius:
+                                      BorderRadius.circular(12 * scale),
                                 ),
                               ),
-                              child: Text(
-                                _yaCalificada
-                                    ? "Volver al Mapa"
-                                    : "Calificar y Volver",
-                              ),
+                              child: Text(_yaCalificada
+                                  ? "Volver al Mapa"
+                                  : "Calificar y Volver"),
                             ),
                           ),
-                          const SizedBox(height: 30),
+                          SizedBox(height: 30 * scale),
                         ],
                       ),
                     ),

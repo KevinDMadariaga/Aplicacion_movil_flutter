@@ -37,20 +37,59 @@ class _LoginConductorState extends State<LoginConductor> {
           password: _passwordController.text.trim(),
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Inicio de sesión exitoso")),
-        );
+        // Mostrar alerta animada con Fade
+        await Navigator.of(context).push(_createFadeDialog());
 
+        // Ir a MapaConductor tras cerrar el diálogo
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MapaConductor()),
+          MaterialPageRoute(builder: (_) => const MapaConductor()),
         );
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error al iniciar sesión: $e")),
-        );
+        _showDialog("Error", "Error al iniciar sesión: $e");
       }
     }
+  }
+
+  PageRouteBuilder _createFadeDialog() {
+    return PageRouteBuilder(
+      opaque: false,
+      barrierDismissible: false,
+      pageBuilder: (context, animation, secondaryAnimation) {
+        Future.delayed(const Duration(seconds: 1), () {
+          Navigator.of(context).pop(); // Cierra el diálogo automáticamente
+        });
+
+        return FadeTransition(
+          opacity: animation,
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                content: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.check_circle, color: Colors.green),
+                    SizedBox(width: 10),
+                    Text(
+                      "Inicio de sesión exitoso",
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+    );
   }
 
   void _showDialog(String title, String message) {

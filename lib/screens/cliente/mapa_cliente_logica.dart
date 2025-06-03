@@ -201,6 +201,12 @@ Widget posicionarInfoUbicacion(
   required VoidCallback onCancelar,
   required VoidCallback onAceptar,
 }) {
+  final now = DateTime.now();
+  final costo = now.hour >= 18 ? 12000 : 8000;
+  final screenWidth = WidgetsBinding.instance.window.physicalSize.width /
+      WidgetsBinding.instance.window.devicePixelRatio;
+  final scale = screenWidth / 375;
+
   return Positioned(
     bottom: 20,
     left: 16,
@@ -225,13 +231,26 @@ Widget posicionarInfoUbicacion(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            children: [
+              const Icon(Icons.attach_money, color: Colors.black87),
+              const SizedBox(width: 8),
+              Text(
+                "Valor del Servicio: \$${costo.toString()}",
+                style: TextStyle(
+                  fontSize: 16 * scale,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
             children: const [
               Icon(Icons.location_on, color: Colors.blueAccent),
               SizedBox(width: 8),
-              Text(
-                "Ubicación Inicial",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              Text("Ubicación Inicial",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
           const SizedBox(height: 4),
@@ -241,10 +260,8 @@ Widget posicionarInfoUbicacion(
             children: const [
               Icon(Icons.flag, color: Colors.green),
               SizedBox(width: 8),
-              Text(
-                "Ubicación Seleccionada",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
+              Text("Ubicación Seleccionada",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
           const SizedBox(height: 4),
@@ -261,16 +278,16 @@ Widget posicionarInfoUbicacion(
               CustomButton(
                 text: 'Cancelar',
                 onPressed: onCancelar,
-                width: 130,
-                height: 50,
-                fontSize: 16,
+                width: 130 * scale,
+                height: 50 * scale,
+                fontSize: 16 * scale,
               ),
               CustomButton(
                 text: 'Aceptar',
                 onPressed: onAceptar,
-                width: 130,
-                height: 50,
-                fontSize: 16,
+                width: 130 * scale,
+                height: 50 * scale,
+                fontSize: 16 * scale,
               ),
             ],
           ),
@@ -285,11 +302,15 @@ Future<String?> crearSolicitudFirebase(
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return null;
 
+  final horaActual = DateTime.now();
+  final valorServicio = horaActual.hour >= 18 ? 12000 : 8000;
+
   final ref = await FirebaseFirestore.instance.collection('solicitud').add({
     'clienteId': user.uid,
     'ubicacion_inicial': GeoPoint(origen.latitude, origen.longitude),
     'ubicacion_seleccionada': GeoPoint(destino.latitude, destino.longitude),
     'direccion_seleccionada': direccion,
+    'valor_servicio': valorServicio,
     'estado': 'pendiente',
     'timestamp': FieldValue.serverTimestamp(),
   });

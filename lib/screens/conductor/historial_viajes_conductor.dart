@@ -95,7 +95,14 @@ class HistorialConductor extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Cerrar"),
+            child: Text(
+              "Cerrar",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: baseFontSize,
+                color: Theme.of(context).primaryColor,
+              ),
+            ),
           ),
         ],
       ),

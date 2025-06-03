@@ -12,7 +12,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
-
 class MapaCliente extends StatefulWidget {
   const MapaCliente({super.key});
 
@@ -36,7 +35,29 @@ class _MapaClienteState extends State<MapaCliente> {
   @override
   void initState() {
     super.initState();
+  }
+
+  /// ✅ Se llama cuando se crea el mapa: aseguramos que el mapa esté listo antes de mover la cámara
+  void _onMapCreated(GoogleMapController controller) async {
+    _mapController = controller;
     _inicializarUbicacion();
+
+    final result = await obtenerUbicacionUsuario();
+    if (!mounted) return;
+
+    if (result.location != null) {
+      setState(() {
+        _userLocation = result.location;
+        _direccionInicial = result.direccion;
+      });
+
+      // ✅ Mueve la cámara después de que el controlador esté listo
+      _mapController.animateCamera(
+        CameraUpdate.newLatLngZoom(result.location!, 16.0),
+      );
+    } else {
+      _mostrarError(context, result.error);
+    }
   }
 
   Future<void> _inicializarUbicacion() async {
@@ -55,8 +76,19 @@ class _MapaClienteState extends State<MapaCliente> {
   }
 
   void _mostrarError(BuildContext context, String mensaje) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(mensaje)));
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Error de ubicación"),
+        content: Text(mensaje),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cerrar"),
+          )
+        ],
+      ),
+    );
   }
 
   void _ajustarVistaMarcadores() {
@@ -334,10 +366,10 @@ class _MapaClienteState extends State<MapaCliente> {
         children: [
           GoogleMap(
             initialCameraPosition: CameraPosition(
-              target: _userLocation ?? const LatLng(8.2595534, -73.353469),
-              zoom: 15.0,
+              target: const LatLng(8.2595534, -73.353469), // posición neutral
+              zoom: 14.0,
             ),
-            onMapCreated: (controller) => _mapController = controller,
+            onMapCreated: _onMapCreated, // ✅ Nueva función controlada
             markers: _markers,
             polylines: _polylines,
             myLocationEnabled: true,
@@ -366,42 +398,42 @@ class _MapaClienteState extends State<MapaCliente> {
     );
   }
 
-  Future<List<LatLng>> obtenerRutaPorCalles(LatLng origen, LatLng destino) async {
-  final url = Uri.parse(
-    'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
-  );
+  Future<List<LatLng>> obtenerRutaPorCalles(
+      LatLng origen, LatLng destino) async {
+    final url = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+    );
 
-  try {
-    final response = await http.get(
-      url,
-      headers: {
-        'User-Agent': 'FlutterApp/1.0',
-        'Accept': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 10));
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'User-Agent': 'FlutterApp/1.0',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data['routes'].isNotEmpty) {
-        final coordinates = data['routes'][0]['geometry']['coordinates'];
-        return coordinates
-            .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
-            .toList();
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'];
+          return coordinates
+              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+              .toList();
+        }
+      } else {
+        debugPrint("HTTP error: ${response.statusCode}");
       }
-    } else {
-      debugPrint("HTTP error: ${response.statusCode}");
+    } on SocketException catch (e) {
+      debugPrint("No se pudo conectar con OSRM: $e");
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on http.ClientException catch (e) {
+      debugPrint("ClientException: $e");
+    } catch (e) {
+      debugPrint("Error inesperado: $e");
     }
-  } on SocketException catch (e) {
-    debugPrint("No se pudo conectar con OSRM: $e");
-  } on TimeoutException {
-    debugPrint("Tiempo de espera agotado al conectar con OSRM");
-  } on http.ClientException catch (e) {
-    debugPrint("ClientException: $e");
-  } catch (e) {
-    debugPrint("Error inesperado: $e");
+
+    return [];
   }
-
-  return [];
-}
-
 }

@@ -4,16 +4,13 @@ import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/controllers/conductor_controller.dart';
 import 'package:taxi_app/screens/conductor/historial_viajes_conductor.dart';
-
 import 'package:taxi_app/screens/conductor/ruta_cliente_conductor.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:taxi_app/screens/home.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'dart:typed_data';
-
-import 'package:vibration/vibration.dart'; // asegúrate de importar esto si usas vibrationPattern
+import 'package:vibration/vibration.dart';
 
 class MapaConductor extends StatefulWidget {
   const MapaConductor({super.key});
@@ -59,25 +56,24 @@ class _MapaConductorState extends State<MapaConductor> {
 
   Future<void> _mostrarNotificacionLocal(String titulo, String cuerpo) async {
     final androidDetails = AndroidNotificationDetails(
-      'canal_solicitudes', // ID del canal
-      'Solicitudes', // Nombre visible del canal
+      'canal_solicitudes',
+      'Solicitudes',
       importance: Importance.max,
       priority: Priority.high,
-      playSound: true, // 🔊 Usa el sonido predeterminado del sistema
-      enableVibration: true, // ✅ Activa vibración
+      playSound: true,
+      enableVibration: true,
     );
 
     final notificationDetails = NotificationDetails(android: androidDetails);
 
-    // ✅ Vibración estándar simple
     if (await Vibration.hasVibrator() ?? false) {
       Vibration.vibrate(duration: 500);
     }
 
     await flutterLocalNotificationsPlugin.show(
       0,
-      '🚖Taxi Ya',
-      'Un cliente necesita de tus servicios',
+      titulo,
+      cuerpo,
       notificationDetails,
     );
   }
@@ -90,9 +86,7 @@ class _MapaConductorState extends State<MapaConductor> {
       });
 
     await controller!.recuperarEstadoConductor();
-    setState(() {
-      conectadoLocal = controller!.conectado;
-    });
+    setState(() => conectadoLocal = controller!.conectado);
 
     controller!.onNuevaSolicitud = (id) async {
       setState(() {
@@ -131,8 +125,7 @@ class _MapaConductorState extends State<MapaConductor> {
       builder: (_) => AlertDialog(
         title: const Text('Permiso requerido'),
         content: const Text(
-          'La aplicación necesita acceso a tu ubicación para funcionar correctamente.',
-        ),
+            'La aplicación necesita acceso a tu ubicación para funcionar correctamente.'),
         actions: [
           TextButton(
             child: const Text('Abrir ajustes'),
@@ -150,6 +143,100 @@ class _MapaConductorState extends State<MapaConductor> {
     );
   }
 
+  Widget _botonConexion(double scale) {
+    return Positioned(
+      bottom: 80,
+      left: 130 * scale,
+      child: ElevatedButton(
+        onPressed: () async {
+          final nuevoEstado = !conectadoLocal!;
+          await controller?.actualizarEstadoConductor(nuevoEstado);
+          setState(() {
+            conectadoLocal = nuevoEstado;
+          });
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: conectadoLocal! ? Colors.green : Colors.red,
+          padding: EdgeInsets.symmetric(
+              horizontal: 24 * scale, vertical: 12 * scale),
+          textStyle:
+              TextStyle(fontSize: 16 * scale, fontWeight: FontWeight.bold),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12 * scale),
+          ),
+        ),
+        child: Text(
+          conectadoLocal! ? "🟢 Conectado" : "🔴 Desconectado",
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerConductor(double scale) {
+    return Drawer(
+      child: ListView(
+        children: [
+          DrawerHeader(
+            padding: EdgeInsets.all(16 * scale),
+            decoration: BoxDecoration(color: Colores.amarillo),
+            child: FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance
+                  .collection('conductor')
+                  .doc(FirebaseAuth.instance.currentUser?.uid)
+                  .get(),
+              builder: (context, snapshot) {
+                final style = TextStyle(
+                    fontSize: 20 * scale, fontWeight: FontWeight.bold);
+                if (!snapshot.hasData || !snapshot.data!.exists) {
+                  return const Text("Conductor no encontrado");
+                }
+                final data = snapshot.data!;
+                final String name =
+                    data['nombre']?.toUpperCase() ?? 'SIN NOMBRE';
+                return Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Colors.white,
+                      child: Icon(Icons.person, color: Colors.grey),
+                    ),
+                    SizedBox(width: 16 * scale),
+                    Expanded(child: Text(name, style: style)),
+                  ],
+                );
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.logout),
+            title:
+                Text('Cerrar Sesión', style: TextStyle(fontSize: 16 * scale)),
+            onTap: () async {
+              await FirebaseAuth.instance.signOut();
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => const Home()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: Text('Historial de Viajes',
+                style: TextStyle(fontSize: 16 * scale)),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const HistorialConductor(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     controller?.dispose();
@@ -158,12 +245,17 @@ class _MapaConductorState extends State<MapaConductor> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final scale = screenWidth / 375;
+
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: Colores.amarillo,
-          title: const Text("Mapa Conductor"),
+          title: Text("Mapa Conductor",
+              style:
+                  TextStyle(fontSize: 20 * scale, fontWeight: FontWeight.bold)),
           actions: [
             IconButton(
               icon: const Icon(Icons.my_location),
@@ -178,66 +270,7 @@ class _MapaConductorState extends State<MapaConductor> {
             ),
           ],
         ),
-        drawer: Drawer(
-          child: ListView(
-            children: [
-              DrawerHeader(
-                padding: const EdgeInsets.all(16.0),
-                decoration: BoxDecoration(color: Colores.amarillo),
-                child: FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance
-                      .collection('conductor')
-                      .doc(FirebaseAuth.instance.currentUser?.uid)
-                      .get(),
-                  builder: (context, snapshot) {
-                    final style = const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold);
-                    if (!snapshot.hasData || !snapshot.data!.exists) {
-                      return const Text("Conductor no encontrado");
-                    }
-                    final data = snapshot.data!;
-                    final String name =
-                        data['nombre']?.toUpperCase() ?? 'SIN NOMBRE';
-                    return Row(
-                      children: [
-                        const CircleAvatar(
-                          radius: 30,
-                          backgroundColor: Colors.white,
-                          child: Icon(Icons.person, color: Colors.grey),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(child: Text(name, style: style)),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Cerrar Sesión'),
-                onTap: () async {
-                  await FirebaseAuth.instance.signOut();
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const Home()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('Historial de Viajes'),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const HistorialConductor(),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
+        drawer: _drawerConductor(scale),
         body: Stack(
           children: [
             GoogleMap(
@@ -251,27 +284,7 @@ class _MapaConductorState extends State<MapaConductor> {
               myLocationEnabled: true,
               myLocationButtonEnabled: false,
             ),
-            if (conectadoLocal != null)
-              Positioned(
-                bottom: 80,
-                left: 130,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    final nuevoEstado = !conectadoLocal!;
-                    await controller?.actualizarEstadoConductor(nuevoEstado);
-                    setState(() {
-                      conectadoLocal = nuevoEstado;
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        conectadoLocal! ? Colors.green : Colors.red,
-                  ),
-                  child: Text(
-                    conectadoLocal! ? "🟢 Conectado" : "🔴 Desconectado",
-                  ),
-                ),
-              ),
+            if (conectadoLocal != null) _botonConexion(scale),
             if (_solicitudStream != null)
               StreamBuilder<DocumentSnapshot>(
                 stream: _solicitudStream,
@@ -310,19 +323,21 @@ class _MapaConductorState extends State<MapaConductor> {
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.all(16.0),
+                            padding: EdgeInsets.all(16 * scale),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text("🚖 Solicitud Entrante",
+                                Text("🚖 Solicitud Entrante",
                                     style: TextStyle(
-                                        fontSize: 18,
+                                        fontSize: 18 * scale,
                                         fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 8),
-                                Text("🛤 Origen: $dir"),
-                                const SizedBox(height: 4),
-                                Text("📍 Destino: $destino"),
-                                const SizedBox(height: 16),
+                                SizedBox(height: 8 * scale),
+                                Text("🛤 Origen: $dir",
+                                    style: TextStyle(fontSize: 14 * scale)),
+                                SizedBox(height: 4 * scale),
+                                Text("📍 Destino: $destino",
+                                    style: TextStyle(fontSize: 14 * scale)),
+                                SizedBox(height: 16 * scale),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
@@ -331,18 +346,18 @@ class _MapaConductorState extends State<MapaConductor> {
                                       text: 'Rechazar',
                                       onPressed: () => setState(
                                           () => _solicitudStream = null),
-                                      width: 145,
-                                      height: 50,
-                                      fontSize: 16,
+                                      width: 145 * scale,
+                                      height: 50 * scale,
+                                      fontSize: 16 * scale,
                                       icon: const Icon(Icons.cancel),
                                     ),
                                     CustomButton(
                                       text: 'Aceptar',
                                       onPressed: () =>
                                           controller?.aceptarSolicitud(),
-                                      width: 145,
-                                      height: 50,
-                                      fontSize: 16,
+                                      width: 145 * scale,
+                                      height: 50 * scale,
+                                      fontSize: 16 * scale,
                                       icon: const Icon(Icons.check),
                                     ),
                                   ],

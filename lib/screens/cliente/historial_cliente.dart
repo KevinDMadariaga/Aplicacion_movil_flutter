@@ -60,7 +60,7 @@ class HistorialCliente extends StatelessWidget {
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (BuildContext dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Column(
           children: [
@@ -99,12 +99,15 @@ class HistorialCliente extends StatelessWidget {
         actionsAlignment: MainAxisAlignment.center,
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
+            onPressed: () {
+              Navigator.of(dialogContext).pop(); // ✅ usar dialogContext
+            },
+            child: Text(
               "Cerrar",
               style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.amber,
+                fontWeight: FontWeight.w600,
+                fontSize: baseFontSize,
+                color: Theme.of(dialogContext).primaryColor,
               ),
             ),
           ),
