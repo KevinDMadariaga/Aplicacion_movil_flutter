@@ -1,26 +1,22 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:taxi_app/components/boton.dart';
-import 'package:taxi_app/main.dart';
 import 'package:taxi_app/screens/conductor/resumen_conductor.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:vibration/vibration.dart';
 
 class ConductorRecogida extends StatefulWidget {
   final String solicitudId;
 
   const ConductorRecogida({Key? key, required this.solicitudId})
-      : super(key: key);
+    : super(key: key);
 
   @override
   State<ConductorRecogida> createState() => _ConductorRecogidaState();
@@ -46,6 +42,8 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   Timer? _simulacionTimer;
   bool _llegandoCliente = false;
   bool _terminandoViaje = false;
+  bool _isMoving = false; // Variable para controlar si el conductor se mueve
+  late Timer _moveTimer; // Timer para controlar el movimiento
   StreamSubscription<DocumentSnapshot>? _conductorListener;
 
   @override
@@ -112,16 +110,16 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
           .doc(user.uid)
           .snapshots()
           .listen((doc) async {
-        if (!mounted) return;
-        if (doc.exists && doc.data()!.containsKey('ubicacion')) {
-          final pos = doc['ubicacion'] as GeoPoint;
-          final nuevaUbicacion = LatLng(pos.latitude, pos.longitude);
-          _animarMovimientoConductor(nuevaUbicacion);
-          _ubicacionConductor = nuevaUbicacion;
-          await _actualizarMapa();
-          _actualizarProgreso();
-        }
-      });
+            if (!mounted) return;
+            if (doc.exists && doc.data()!.containsKey('ubicacion')) {
+              final pos = doc['ubicacion'] as GeoPoint;
+              final nuevaUbicacion = LatLng(pos.latitude, pos.longitude);
+              _animarMovimientoConductor(nuevaUbicacion);
+              _ubicacionConductor = nuevaUbicacion;
+              await _actualizarMapa();
+              _actualizarProgreso();
+            }
+          });
     }
   }
 
@@ -174,7 +172,8 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
           markerId: MarkerId(_faseDos ? "destino" : "cliente"),
           position: destino,
           icon: BitmapDescriptor.defaultMarkerWithHue(
-              _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed),
+            _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+          ),
         ),
         if (_markerConductor != null) _markerConductor!,
       };
@@ -191,20 +190,71 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
 
     final bounds = LatLngBounds(
       southwest: LatLng(
-        [_ubicacionConductor!.latitude, destino.latitude]
-            .reduce((a, b) => a < b ? a : b),
-        [_ubicacionConductor!.longitude, destino.longitude]
-            .reduce((a, b) => a < b ? a : b),
+        [
+          _ubicacionConductor!.latitude,
+          destino.latitude,
+        ].reduce((a, b) => a < b ? a : b),
+        [
+          _ubicacionConductor!.longitude,
+          destino.longitude,
+        ].reduce((a, b) => a < b ? a : b),
       ),
       northeast: LatLng(
-        [_ubicacionConductor!.latitude, destino.latitude]
-            .reduce((a, b) => a > b ? a : b),
-        [_ubicacionConductor!.longitude, destino.longitude]
-            .reduce((a, b) => a > b ? a : b),
+        [
+          _ubicacionConductor!.latitude,
+          destino.latitude,
+        ].reduce((a, b) => a > b ? a : b),
+        [
+          _ubicacionConductor!.longitude,
+          destino.longitude,
+        ].reduce((a, b) => a > b ? a : b),
       ),
     );
 
     _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+  }
+
+  Future<List<LatLng>> obtenerRutaPorCalles(
+    LatLng origen,
+    LatLng destino,
+  ) async {
+    final url = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+    );
+
+    try {
+      final response = await http
+          .get(
+            url,
+            headers: {
+              'User-Agent': 'FlutterApp/1.0',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'];
+          return coordinates
+              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+              .toList();
+        }
+      } else {
+        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
+      }
+    } on SocketException catch (e) {
+      debugPrint("No se pudo conectar con OSRM: $e");
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on http.ClientException catch (e) {
+      debugPrint("ClientException: $e");
+    } catch (e) {
+      debugPrint("Otro error: $e");
+    }
+
+    return [];
   }
 
   void _actualizarProgreso() {
@@ -225,8 +275,9 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
 
     if (!mounted) return;
     setState(() {
-      _progreso =
-          _faseDos ? 0.5 + (_progresoActual * 0.5) : _progresoActual * 0.5;
+      _progreso = _faseDos
+          ? 0.5 + (_progresoActual * 0.5)
+          : _progresoActual * 0.5;
       _cercaDelCliente = !_faseDos && distanciaActual < 50;
       _cercaDelDestino = _faseDos && distanciaActual < 50;
     });
@@ -255,10 +306,7 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     await FirebaseFirestore.instance
         .collection('solicitud')
         .doc(widget.solicitudId)
-        .update({
-      'estado': 'terminado',
-      'fecha_terminacion': now,
-    });
+        .update({'estado': 'terminado', 'fecha_terminacion': now});
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -268,57 +316,6 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     );
   }
 
-  void _simularMovimiento() {
-    _simulacionTimer?.cancel();
-    final destino = _faseDos ? _ubicacionDestino : _ubicacionCliente;
-
-    _simulacionTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (!mounted) {
-        _simulacionTimer?.cancel();
-        return;
-      }
-
-      if (_conductorId == null ||
-          _ubicacionConductor == null ||
-          destino == null) return;
-
-      final deltaLat = (destino.latitude - _ubicacionConductor!.latitude) * 0.1;
-      final deltaLng =
-          (destino.longitude - _ubicacionConductor!.longitude) * 0.1;
-
-      final nuevaUbicacion = LatLng(
-        _ubicacionConductor!.latitude + deltaLat,
-        _ubicacionConductor!.longitude + deltaLng,
-      );
-
-      await FirebaseFirestore.instance
-          .collection('conductor')
-          .doc(_conductorId)
-          .update({
-        'ubicacion':
-            GeoPoint(nuevaUbicacion.latitude, nuevaUbicacion.longitude),
-      });
-
-      if ((deltaLat.abs() < 0.0001 && deltaLng.abs() < 0.0001) ||
-          _progreso >= 1.0) {
-        _simulacionTimer?.cancel();
-      }
-    });
-  }
-
-  Future<void> _abrirEnGoogleMaps(LatLng destino) async {
-    final url =
-        'https://www.google.com/maps/dir/?api=1&destination=${destino.latitude},${destino.longitude}&travelmode=driving';
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir Google Maps.')),
-      );
-    }
-  }
-
-// Dentro del método build()
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
@@ -331,8 +328,10 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
           Expanded(
             flex: 5,
             child: GoogleMap(
-              initialCameraPosition:
-                  const CameraPosition(target: LatLng(0, 0), zoom: 14),
+              initialCameraPosition: const CameraPosition(
+                target: LatLng(0, 0),
+                zoom: 14,
+              ),
               markers: _markers,
               polylines: _polylines,
               onMapCreated: (controller) => _mapController = controller,
@@ -341,17 +340,18 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
             ),
           ),
           Expanded(
-            flex: 3,
+            flex: 4,
             child: Stack(
               children: [
                 Container(
                   padding: EdgeInsets.all(screenWidth * 0.050),
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(24)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
                     boxShadow: [
-                      BoxShadow(blurRadius: 10, color: Colors.black12)
+                      BoxShadow(blurRadius: 10, color: Colors.black12),
                     ],
                   ),
                   child: Column(
@@ -362,8 +362,9 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                             ? "🚗 Llevando al cliente a su destino..."
                             : "📍 Dirígete a recoger al cliente",
                         style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: fontSize + 2),
+                          fontWeight: FontWeight.bold,
+                          fontSize: fontSize + 2,
+                        ),
                       ),
                       SizedBox(height: screenHeight * 0.01),
                       Row(
@@ -378,22 +379,31 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text("🚶 $_nombreCliente",
-                                    style: TextStyle(
-                                        fontSize: fontSize,
-                                        fontWeight: FontWeight.bold)),
+                                Text(
+                                  "🚶 $_nombreCliente",
+                                  style: TextStyle(
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                                 SizedBox(height: screenHeight * 0.005),
-                                Text("📍 $_direccionCliente",
-                                    style: TextStyle(fontSize: fontSize * 0.9)),
+                                Text(
+                                  "📍 $_direccionCliente",
+                                  style: TextStyle(fontSize: fontSize * 0.9),
+                                ),
                               ],
                             ),
                           ),
                         ],
                       ),
                       SizedBox(height: screenHeight * 0.015),
-                      Text("🛣️ Progreso del viaje:",
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: fontSize)),
+                      Text(
+                        "🛣️ Progreso del viaje:",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: fontSize,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Center(
                         child: Text(
@@ -416,8 +426,11 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                             backgroundColor: Colors.grey[300]!,
                             padding: EdgeInsets.zero,
                           ),
-                          Icon(Icons.arrow_drop_down,
-                              color: Colors.black, size: fontSize + 6),
+                          Icon(
+                            Icons.arrow_drop_down,
+                            color: Colors.black,
+                            size: fontSize + 6,
+                          ),
                         ],
                       ),
                       SizedBox(height: screenHeight * 0.015),
@@ -427,82 +440,38 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                           if (!_faseDos)
                             CustomButton(
                               text: "Ya llegué",
-                              onPressed:
-                                  _cercaDelCliente ? _llegueAlCliente : null,
+                              onPressed: _cercaDelCliente
+                                  ? _llegueAlCliente
+                                  : null,
                               isLoading: _llegandoCliente,
-                              width: screenWidth * 0.38,
+                              width: screenWidth * 0.45,
                               height: screenHeight * 0.06,
                               fontSize: fontSize,
-                              icon: Icon(Icons.location_on,
-                                  size: fontSize, color: Colors.white),
+                              icon: Icon(
+                                Icons.location_on,
+                                size: fontSize,
+                                color: Colors.white,
+                              ),
                             ),
                           if (_faseDos)
                             CustomButton(
                               text: "Terminar viaje",
-                              onPressed:
-                                  _cercaDelDestino ? _terminarViaje : null,
+                              onPressed: _cercaDelDestino
+                                  ? _terminarViaje
+                                  : null,
                               isLoading: _terminandoViaje,
-                              width: screenWidth * 0.44,
+                              width: screenWidth * 0.50,
                               height: screenHeight * 0.06,
                               fontSize: fontSize,
-                              icon: Icon(Icons.flag,
-                                  size: fontSize, color: Colors.white),
+                              icon: Icon(
+                                Icons.flag,
+                                size: fontSize,
+                                color: Colors.white,
+                              ),
                             ),
-                          CustomButton(
-                            text: "Google Maps",
-                            onPressed: () {
-                              final destino = _faseDos
-                                  ? _ubicacionDestino
-                                  : _ubicacionCliente;
-                              if (destino != null) _abrirEnGoogleMaps(destino);
-                            },
-                            width: screenWidth * 0.45,
-                            height: screenHeight * 0.06,
-                            fontSize: fontSize,
-                            icon: Icon(Icons.map,
-                                color: Colors.white, size: fontSize),
-                          ),
                         ],
                       ),
                     ],
-                  ),
-                ),
-
-                // ✅ Botón flotante circular para notificar al cliente
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: FloatingActionButton(
-                    backgroundColor: Colors.amber,
-                    onPressed: () async {
-                      // Mostrar notificación local
-                      const AndroidNotificationDetails androidDetails =
-                          AndroidNotificationDetails(
-                        'canal_boton_llamada',
-                        'Notificación al cliente',
-                        importance: Importance.max,
-                        priority: Priority.high,
-                        playSound: true,
-                        enableVibration: true,
-                        icon: '@mipmap/ic_launcher',
-                      );
-                      const NotificationDetails notiDetails =
-                          NotificationDetails(android: androidDetails);
-
-                      await flutterLocalNotificationsPlugin.show(
-                        1,
-                        '🚖 Taxi Ya',
-                        'Tu conductor está fuera esperándote 🛎️',
-                        notiDetails,
-                      );
-
-                      // Vibración adicional
-                      if (await Vibration.hasVibrator() ?? false) {
-                        Vibration.vibrate(duration: 600);
-                      }
-                    },
-                    child:
-                        Icon(Icons.notifications_active, color: Colors.black),
                   ),
                 ),
               ],
@@ -511,44 +480,5 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
         ],
       ),
     );
-  }
-
-  Future<List<LatLng>> obtenerRutaPorCalles(
-      LatLng origen, LatLng destino) async {
-    final url = Uri.parse(
-      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
-    );
-
-    try {
-      final response = await http.get(
-        url,
-        headers: {
-          'User-Agent': 'FlutterApp/1.0',
-          'Accept': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['routes'].isNotEmpty) {
-          final coordinates = data['routes'][0]['geometry']['coordinates'];
-          return coordinates
-              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
-              .toList();
-        }
-      } else {
-        debugPrint("HTTP error: ${response.statusCode}");
-      }
-    } on SocketException catch (e) {
-      debugPrint("No se pudo conectar con OSRM: $e");
-    } on TimeoutException {
-      debugPrint("Tiempo de espera agotado al conectar con OSRM");
-    } on http.ClientException catch (e) {
-      debugPrint("ClientException: $e");
-    } catch (e) {
-      debugPrint("Otro error: $e");
-    }
-
-    return [];
   }
 }

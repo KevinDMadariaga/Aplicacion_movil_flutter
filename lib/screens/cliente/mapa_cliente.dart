@@ -5,12 +5,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente_logica.dart';
-import 'package:taxi_app/screens/cliente/ruta_conductor_cliente.dart';
+
 import 'package:diacritic/diacritic.dart'; // Importa el paquete diacritic
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:taxi_app/screens/cliente/ruta_conductor_cliente.dart';
 
 class MapaCliente extends StatefulWidget {
   const MapaCliente({super.key});

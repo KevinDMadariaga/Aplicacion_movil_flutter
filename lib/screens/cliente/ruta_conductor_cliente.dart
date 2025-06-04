@@ -17,14 +17,14 @@ import 'package:vibration/vibration.dart';
 class ClienteRecogida extends StatefulWidget {
   final String solicitudId;
   const ClienteRecogida({Key? key, required this.solicitudId})
-      : super(key: key);
+    : super(key: key);
 
   @override
   _ClienteRecogidaState createState() => _ClienteRecogidaState();
 }
 
 class _ClienteRecogidaState extends State<ClienteRecogida> {
-  GoogleMapController? _mapController;
+  late GoogleMapController _mapController;
   LatLng? _ubicacionInicial;
   LatLng? _ubicacionDestino;
   LatLng? _ubicacionConductor;
@@ -63,40 +63,51 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
         .doc(widget.solicitudId)
         .snapshots()
         .listen((doc) async {
-      if (!mounted || !doc.exists) return;
-      final data = doc.data()!;
-      final nuevoEstado = data['estado'];
+          if (!mounted || !doc.exists) return;
+          final data = doc.data()!;
 
-      if (nuevoEstado == 'terminado') {
-        if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => ResumenSolicitud(solicitudId: widget.solicitudId),
-          ),
-        );
-        return;
-      }
+          final bool notiFuera = data['fueraDeCasa'] == true;
+          if (notiFuera && !_notificado) {
+            _notificado = true;
+            _mostrarNotificacionFueraDeCasa();
+          }
 
-      final nuevaFaseDos = nuevoEstado == 'llego';
-      if (nuevaFaseDos != _faseDos && mounted) {
-        setState(() {
-          _faseDos = nuevaFaseDos;
-          _distanciaTotal = null;
-          _progresoActual = 0.0;
-          _progreso = 0.5;
-          _notificado = false;
+          final nuevoEstado = data['estado'];
+          if (nuevoEstado == 'terminado') {
+            if (!mounted) return;
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ResumenSolicitud(solicitudId: widget.solicitudId),
+              ),
+            );
+            return;
+          }
+
+          final nuevaFaseDos = nuevoEstado == 'llego';
+          if (nuevaFaseDos != _faseDos && mounted) {
+            setState(() {
+              _faseDos = nuevaFaseDos;
+              _distanciaTotal = null;
+              _progresoActual = 0.0;
+              _progreso = 0.5;
+              _notificado = false;
+            });
+          }
+
+          _ubicacionInicial = LatLng(
+            data['ubicacion_inicial'].latitude,
+            data['ubicacion_inicial'].longitude,
+          );
+          _ubicacionDestino = LatLng(
+            data['ubicacion_seleccionada'].latitude,
+            data['ubicacion_seleccionada'].longitude,
+          );
+          _conductorId = data['conductorId'];
+
+          await _obtenerDatosConductor(_conductorId!);
+          _escucharUbicacionConductor(_conductorId!);
         });
-      }
-
-      _ubicacionInicial = LatLng(data['ubicacion_inicial'].latitude,
-          data['ubicacion_inicial'].longitude);
-      _ubicacionDestino = LatLng(data['ubicacion_seleccionada'].latitude,
-          data['ubicacion_seleccionada'].longitude);
-      _conductorId = data['conductorId'];
-
-      await _obtenerDatosConductor(_conductorId!);
-      _escucharUbicacionConductor(_conductorId!);
-    });
   }
 
   Future<void> _obtenerDatosConductor(String conductorId) async {
@@ -112,66 +123,86 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     }
   }
 
+  // Este método escucha los cambios en la ubicación del conductor
   void _escucharUbicacionConductor(String conductorId) {
     _conductorListener = FirebaseFirestore.instance
         .collection('conductor')
         .doc(conductorId)
         .snapshots()
         .listen((doc) async {
-      if (!mounted || !doc.exists || !doc.data()!.containsKey('ubicacion'))
-        return;
-
-      GeoPoint geo = doc['ubicacion'];
-      LatLng nuevaUbicacion = LatLng(geo.latitude, geo.longitude);
-      _ubicacionConductor = nuevaUbicacion;
-      _animarMovimientoConductor(nuevaUbicacion);
-      await _obtenerDireccionConductor();
-      await _actualizarMapa();
-      _actualizarProgreso();
-    });
+          if (!mounted || !doc.exists || !doc.data()!.containsKey('ubicacion'))
+            return;
+          GeoPoint geo = doc['ubicacion'];
+          LatLng nuevaUbicacion = LatLng(geo.latitude, geo.longitude);
+          _ubicacionConductor = nuevaUbicacion;
+          _animarMovimientoConductor(nuevaUbicacion); // Actualiza la ubicación
+          await _obtenerDireccionConductor();
+          await _actualizarMapa();
+          _actualizarProgreso();
+        });
   }
 
   void _animarMovimientoConductor(LatLng nuevaPos) {
     if (_markerConductor == null) {
+      // Si el marcador no existe, crea uno nuevo.
       _markerConductor = Marker(
         markerId: const MarkerId("conductor"),
         position: nuevaPos,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
         infoWindow: InfoWindow(title: _nombreConductor),
       );
-      setState(() {
-        _markers.add(_markerConductor!);
-      });
-      _mapController?.animateCamera(CameraUpdate.newLatLng(nuevaPos));
+      _markers.add(_markerConductor!);
+      _mapController.animateCamera(
+        CameraUpdate.newLatLng(nuevaPos),
+      ); // Ajusta la cámara al nuevo marcador
     } else {
-      final anterior = _markerConductor!;
-      _markerConductor = anterior.copyWith(positionParam: nuevaPos);
-      setState(() {
-        _markers.removeWhere((m) => m.markerId.value == "conductor");
-        _markers.add(_markerConductor!);
+      // Si el marcador ya existe, anima el movimiento.
+      final inicio = _markerConductor!.position;
+      double t = 0.0;
+      Timer.periodic(const Duration(milliseconds: 16), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        t += 0.05;
+        if (t >= 1.0) {
+          timer.cancel();
+          t = 1.0;
+        }
+        final lat = inicio.latitude + (nuevaPos.latitude - inicio.latitude) * t;
+        final lng =
+            inicio.longitude + (nuevaPos.longitude - inicio.longitude) * t;
+        if (!mounted) return;
+        setState(() {
+          _markerConductor = _markerConductor!.copyWith(
+            positionParam: LatLng(lat, lng),
+          );
+          _markers.removeWhere((m) => m.markerId.value == "conductor");
+          _markers.add(_markerConductor!); // Actualiza la lista de marcadores
+        });
       });
     }
   }
 
   Future<void> _obtenerDireccionConductor() async {
-    if (_ubicacionConductor == null) return;
+    if (_ubicacionConductor != null) {
+      try {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          _ubicacionConductor!.latitude,
+          _ubicacionConductor!.longitude,
+        ).timeout(const Duration(seconds: 5));
 
-    try {
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        _ubicacionConductor!.latitude,
-        _ubicacionConductor!.longitude,
-      ).timeout(const Duration(seconds: 5));
-
-      if (placemarks.isNotEmpty && mounted) {
-        final lugar = placemarks.first;
+        if (placemarks.isNotEmpty && mounted) {
+          final lugar = placemarks.first;
+          setState(() {
+            _direccionConductor = "${lugar.street}, ${lugar.locality}";
+          });
+        }
+      } catch (_) {
         setState(() {
-          _direccionConductor = "${lugar.street}, ${lugar.locality}";
+          _direccionConductor = "Dirección no disponible";
         });
       }
-    } catch (_) {
-      setState(() {
-        _direccionConductor = "Dirección no disponible";
-      });
     }
   }
 
@@ -187,7 +218,8 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
           markerId: MarkerId(_faseDos ? "destino" : "cliente"),
           position: destino,
           icon: BitmapDescriptor.defaultMarkerWithHue(
-              _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed),
+            _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+          ),
         ),
         if (_markerConductor != null) _markerConductor!,
       };
@@ -203,20 +235,28 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
 
     final bounds = LatLngBounds(
       southwest: LatLng(
-        [_ubicacionConductor!.latitude, destino.latitude]
-            .reduce((a, b) => a < b ? a : b),
-        [_ubicacionConductor!.longitude, destino.longitude]
-            .reduce((a, b) => a < b ? a : b),
+        [
+          _ubicacionConductor!.latitude,
+          destino.latitude,
+        ].reduce((a, b) => a < b ? a : b),
+        [
+          _ubicacionConductor!.longitude,
+          destino.longitude,
+        ].reduce((a, b) => a < b ? a : b),
       ),
       northeast: LatLng(
-        [_ubicacionConductor!.latitude, destino.latitude]
-            .reduce((a, b) => a > b ? a : b),
-        [_ubicacionConductor!.longitude, destino.longitude]
-            .reduce((a, b) => a > b ? a : b),
+        [
+          _ubicacionConductor!.latitude,
+          destino.latitude,
+        ].reduce((a, b) => a > b ? a : b),
+        [
+          _ubicacionConductor!.longitude,
+          destino.longitude,
+        ].reduce((a, b) => a > b ? a : b),
       ),
     );
 
-    _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
+    _mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
   void _actualizarProgreso() {
@@ -240,43 +280,223 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
     }
 
     _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
-    if (!mounted) return;
 
+    if (!mounted) return;
     setState(() {
-      _progreso =
-          _faseDos ? 0.5 + (_progresoActual * 0.5) : _progresoActual * 0.5;
+      _progreso = _faseDos
+          ? 0.5 + (_progresoActual * 0.5)
+          : _progresoActual * 0.5;
     });
   }
 
   Future<void> _mostrarNotificacionLocal() async {
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
-      'canal_solicitudes',
-      'Solicitudes',
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      enableVibration: true,
-      icon: '@mipmap/ic_launcher',
-    );
+          'canal_solicitudes', // ID del canal
+          'Solicitudes', // Nombre visible del canal
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true, // 🔊 Sonido predeterminado del sistema
+          enableVibration: true, // ✅ Activa vibración
+          icon: '@mipmap/ic_launcher', // Icono predeterminado
+        );
 
-    const NotificationDetails notiDetails =
-        NotificationDetails(android: androidDetails);
+    const NotificationDetails notiDetails = NotificationDetails(
+      android: androidDetails,
+    );
 
     await flutterLocalNotificationsPlugin.show(
       0,
-      '🚖 Conductor cerca',
-      'Tu conductor está por llegar.',
+      '🚖 Conductor cerca', // TÍTULO
+      'Tu conductor está por llegar.', // MENSAJE
+      notiDetails,
+    );
+
+    // ✅ Vibración predeterminada
+    if (await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(); // vibración simple estándar
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final fontSize = screenWidth * 0.045;
+    final iconSize = screenWidth * 0.07;
+
+    return Scaffold(
+      body: Column(
+        children: [
+          Expanded(
+            flex: 5,
+            child: GoogleMap(
+              initialCameraPosition: const CameraPosition(
+                target: LatLng(0, 0),
+                zoom: 14,
+              ),
+              markers: _markers,
+              onMapCreated: (controller) => _mapController = controller,
+              myLocationEnabled: false,
+              zoomControlsEnabled: false,
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Container(
+              padding: EdgeInsets.all(screenWidth * 0.04),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [BoxShadow(blurRadius: 10, color: Colors.black12)],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: screenWidth * 0.08,
+                        backgroundColor: Colors.grey,
+                        child: Icon(Icons.person, size: screenWidth * 0.08),
+                      ),
+                      SizedBox(width: screenWidth * 0.04),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "🚖 $_nombreConductor",
+                              style: TextStyle(
+                                fontSize: fontSize,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: screenHeight * 0.005),
+                            Text(
+                              "🚗 Placa: $_placaConductor",
+                              style: TextStyle(
+                                fontSize: fontSize * 0.95,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: screenHeight * 0.005),
+                            Text(
+                              "📍 $_direccionConductor",
+                              style: TextStyle(fontSize: fontSize * 0.9),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: screenHeight * 0.015),
+                  Text(
+                    "🛣️ Progreso del viaje:",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: fontSize,
+                    ),
+                  ),
+                  SizedBox(height: screenHeight * 0.008),
+                  const Center(
+                    child: Text(
+                      "Llegada                                              Destino",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      LinearPercentIndicator(
+                        lineHeight: screenHeight * 0.015,
+                        percent: _progreso,
+                        barRadius: const Radius.circular(10),
+                        progressColor: Colors.amber,
+                        backgroundColor: Colors.grey[300]!,
+                        padding: EdgeInsets.zero,
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        color: Colors.black,
+                        size: iconSize,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: screenHeight * 0.015),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      CustomButton(
+                        text: "Detalles",
+                        width: screenWidth * 0.35,
+                        height: screenHeight * 0.06,
+                        fontSize: fontSize,
+                        onPressed: () {
+                          debugPrint("Detalles presionado");
+                        },
+                      ),
+                      CustomButton(
+                        text: "Emergencia",
+                        width: screenWidth * 0.5,
+                        height: screenHeight * 0.06,
+                        fontSize: fontSize,
+                        icon: Icon(
+                          Icons.warning,
+                          size: iconSize,
+                          color: Colors.red,
+                        ),
+                        onPressed: () {
+                          debugPrint("Emergencia presionado");
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _mostrarNotificacionFueraDeCasa() async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          'noti_fuera_casa',
+          'Notificación Fuera de Casa',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          icon: '@mipmap/ic_launcher',
+        );
+
+    const NotificationDetails notiDetails = NotificationDetails(
+      android: androidDetails,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      1,
+      '🚖 Tu conductor ha llegado',
+      'Tu conductor está afuera de tu casa',
       notiDetails,
     );
 
     if (await Vibration.hasVibrator() ?? false) {
-      Vibration.vibrate();
+      Vibration.vibrate(duration: 800);
     }
   }
 
   Future<List<LatLng>> obtenerRutaPorCalles(
-      LatLng origen, LatLng destino) async {
+    LatLng origen,
+    LatLng destino,
+  ) async {
     try {
       final url = Uri.parse(
         'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
@@ -292,25 +512,17 @@ class _ClienteRecogidaState extends State<ClienteRecogida> {
               .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
               .toList();
         }
+      } else {
+        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
       }
-    } catch (_) {}
-    return [];
-  }
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on SocketException {
+      debugPrint("Error de red: no se pudo conectar con OSRM");
+    } catch (e) {
+      debugPrint("Error inesperado: $e");
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: GoogleMap(
-        initialCameraPosition: const CameraPosition(
-          target: LatLng(0, 0),
-          zoom: 14,
-        ),
-        onMapCreated: (controller) => _mapController = controller,
-        markers: _markers,
-        polylines: _polylines,
-        myLocationEnabled: false,
-        zoomControlsEnabled: false,
-      ),
-    );
+    return [];
   }
 }

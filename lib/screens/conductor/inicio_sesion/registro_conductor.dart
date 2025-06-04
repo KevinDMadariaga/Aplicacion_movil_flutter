@@ -43,20 +43,23 @@ class _RegistroConductorState extends State<RegistroConductor> {
   Future<void> _registrarConductor() async {
     if (_formKey.currentState!.validate()) {
       try {
-        final signInMethods = await _auth
-            .fetchSignInMethodsForEmail(_emailController.text.trim());
+        final signInMethods = await _auth.fetchSignInMethodsForEmail(
+          _emailController.text.trim(),
+        );
 
         if (signInMethods.isNotEmpty) {
           _showDialog(
-              "Error", "Este correo ya está registrado. Intenta con otro.");
+            "Error",
+            "Este correo ya está registrado. Intenta con otro.",
+          );
           return;
         }
 
-        UserCredential userCredential =
-            await _auth.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
+        UserCredential userCredential = await _auth
+            .createUserWithEmailAndPassword(
+              email: _emailController.text.trim(),
+              password: _passwordController.text.trim(),
+            );
 
         await _guardarDatosEnFirestore(userCredential);
 
@@ -65,7 +68,9 @@ class _RegistroConductorState extends State<RegistroConductor> {
       } on FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
           _showDialog(
-              "Error", "Este correo ya está registrado. Intenta con otro.");
+            "Error",
+            "Este correo ya está registrado. Intenta con otro.",
+          );
         } else {
           _showDialog("Error", e.message ?? "Ocurrió un error inesperado.");
         }
@@ -94,36 +99,28 @@ class _RegistroConductorState extends State<RegistroConductor> {
 
   // Mostrar mensaje de éxito y redirigir
   void _showSuccessMessage() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+    // Muestra un SnackBar en lugar de un AlertDialog
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
           children: [
-            const Icon(
-              Icons.check_circle,
-              color: Colors.green,
-              size: 50,
-            ),
-            const SizedBox(height: 20),
+            const Icon(Icons.check_circle, color: Colors.green, size: 30),
+            const SizedBox(width: 10),
             const Text(
-              "¡Registro exitoso!",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              "¡Registro exitoso! Bienvenido al sistema.",
+              style: TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: 20),
-            const Text("Bienvenido al sistema."),
           ],
         ),
+        duration: const Duration(seconds: 2), // Duración del SnackBar
       ),
     );
 
-    // Después de un retraso de 2 segundos, se redirige a la pantalla de MapaConductor
+    // Después de 2 segundos, se redirige a la pantalla de MapaConductor
     Future.delayed(const Duration(seconds: 2), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-            builder: (context) =>
-                const MapaConductor()), // Asegúrate de que MapaConductor esté disponible
+        MaterialPageRoute(builder: (context) => const MapaConductor()),
       );
     });
   }
@@ -258,7 +255,8 @@ class _RegistroConductorState extends State<RegistroConductor> {
                           ),
                         ],
                       ),
-                      errorText: _passwordController.text.isNotEmpty &&
+                      errorText:
+                          _passwordController.text.isNotEmpty &&
                               _passwordController.text.length < 6
                           ? "Mínimo 6 caracteres"
                           : null,
@@ -267,7 +265,7 @@ class _RegistroConductorState extends State<RegistroConductor> {
                   ),
                   const SizedBox(height: 16),
 
-// CAMPO: Confirmar Contraseña
+                  // CAMPO: Confirmar Contraseña
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: !_isPasswordVisible,
@@ -284,19 +282,20 @@ class _RegistroConductorState extends State<RegistroConductor> {
                                   : Icons.cancel,
                               color:
                                   _confirmPasswordController.text.length >= 6 &&
-                                          _confirmPasswordController.text ==
-                                              _passwordController.text
-                                      ? Colors.green
-                                      : Colors.red,
+                                      _confirmPasswordController.text ==
+                                          _passwordController.text
+                                  ? Colors.green
+                                  : Colors.red,
                             )
                           : null,
-                      errorText: _confirmPasswordController.text.isNotEmpty &&
+                      errorText:
+                          _confirmPasswordController.text.isNotEmpty &&
                               _confirmPasswordController.text.length < 6
                           ? "Mínimo 6 caracteres"
                           : _confirmPasswordController.text !=
-                                  _passwordController.text
-                              ? "Las contraseñas no coinciden"
-                              : null,
+                                _passwordController.text
+                          ? "Las contraseñas no coinciden"
+                          : null,
                       border: const OutlineInputBorder(),
                     ),
                   ),
