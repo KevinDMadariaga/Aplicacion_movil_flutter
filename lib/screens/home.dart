@@ -22,10 +22,7 @@ class Home extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Image.asset(
-                        'assets/img/taxi.png',
-                        height: height * 0.27,
-                      ),
+                      Image.asset('assets/img/taxi.png', height: height * 0.27),
                       SizedBox(height: height * 0.02),
                       Text(
                         'Viaja seguro, rápido y con confianza',
@@ -49,7 +46,8 @@ class Home extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => const LoginCliente()),
+                                builder: (_) => const LoginCliente(),
+                              ),
                             );
                           },
                           style: ElevatedButton.styleFrom(
@@ -93,7 +91,8 @@ class Home extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => const LoginConductor()),
+                                builder: (_) => const LoginConductor(),
+                              ),
                             );
                           },
                           style: ElevatedButton.styleFrom(
@@ -126,23 +125,6 @@ class Home extends StatelessWidget {
                         ),
                       ),
                     ],
-                  ),
-                ),
-
-                // Firma / Marca de agua
-                Positioned(
-                  bottom: height * 0.02,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Text(
-                      "Desarrollado por GPT Y Asociados",
-                      style: TextStyle(
-                        fontSize: width * 0.035,
-                        color: Colors.grey.shade500,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
                   ),
                 ),
               ],

@@ -1,31 +1,33 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:http/http.dart' as http;
-import 'package:geolocator/geolocator.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/main.dart';
 import 'package:taxi_app/screens/cliente/resumen_cliente.dart';
 import 'package:vibration/vibration.dart';
 
-class ClienteRecogida1 extends StatefulWidget {
+class ClienteRecogida extends StatefulWidget {
   final String solicitudId;
-  const ClienteRecogida1({Key? key, required this.solicitudId})
+
+  const ClienteRecogida({Key? key, required this.solicitudId})
     : super(key: key);
 
   @override
-  _ClienteRecogida1State createState() => _ClienteRecogida1State();
+  _ClienteRecogidaState createState() => _ClienteRecogidaState();
 }
 
-class _ClienteRecogida1State extends State<ClienteRecogida1> {
+class _ClienteRecogidaState extends State<ClienteRecogida> {
   late GoogleMapController _mapController;
-  LatLng? _ubicacionInicial;
+  LatLng? _ubicacionCliente;
   LatLng? _ubicacionDestino;
   LatLng? _ubicacionConductor;
   String _nombreConductor = "DESCONOCIDO";
@@ -40,6 +42,8 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
   String? _conductorId;
   Marker? _markerConductor;
   String _placaConductor = "";
+  List<LatLng> _rutaConductor = []; // Para almacenar la ruta
+  int _rutaIndex = 0; // Controla el progreso en la ruta
 
   StreamSubscription<DocumentSnapshot>? _solicitudListener;
   StreamSubscription<DocumentSnapshot>? _conductorListener;
@@ -95,7 +99,7 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
             });
           }
 
-          _ubicacionInicial = LatLng(
+          _ubicacionCliente = LatLng(
             data['ubicacion_inicial'].latitude,
             data['ubicacion_inicial'].longitude,
           );
@@ -147,30 +151,25 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
       // Cargar la imagen como icono
       final BitmapDescriptor customIcon = await BitmapDescriptor.fromAssetImage(
         ImageConfiguration(size: Size(50, 50)), // Ajusta el tamaño aquí
-        'assets/img/taxi_icon.png', // Ruta de tu imagen
+        'assets/img/icon_taxi.png', // Ruta de tu imagen
       );
 
-      // Si el marcador no existe, crea uno nuevo con la imagen personalizada
+      // Crear el marcador con la imagen personalizada
       _markerConductor = Marker(
         markerId: const MarkerId("conductor"),
         position: nuevaPos,
-        icon: customIcon, // Usamos la imagen personalizada como ícono
-        infoWindow: InfoWindow(title: _nombreConductor),
+        icon: customIcon,
       );
       _markers.add(_markerConductor!);
-      _mapController.animateCamera(
-        CameraUpdate.newLatLng(nuevaPos),
-      ); // Ajusta la cámara al nuevo marcador
     } else {
-      // Si el marcador ya existe, anima el movimiento con la imagen personalizada
       final inicio = _markerConductor!.position;
       double t = 0.0;
-      Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      Timer.periodic(const Duration(milliseconds: 100), (timer) {
         if (!mounted) {
           timer.cancel();
           return;
         }
-        t += 0.05;
+        t += 0.02; // Controla la suavidad del movimiento
         if (t >= 1.0) {
           timer.cancel();
           t = 1.0;
@@ -184,7 +183,7 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
             positionParam: LatLng(lat, lng),
           );
           _markers.removeWhere((m) => m.markerId.value == "conductor");
-          _markers.add(_markerConductor!); // Actualiza la lista de marcadores
+          _markers.add(_markerConductor!);
         });
       });
     }
@@ -213,15 +212,10 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
   }
 
   Future<void> _actualizarMapa() async {
-    if (_ubicacionConductor == null || _ubicacionDestino == null) return;
+    if (_ubicacionConductor == null) return;
 
-    final destino = _faseDos ? _ubicacionDestino : _ubicacionInicial;
-
-    // Llamada a la API para obtener la ruta desde la ubicación del conductor hasta el destino
+    final destino = _faseDos ? _ubicacionDestino : _ubicacionCliente;
     final ruta = await obtenerRutaPorCalles(_ubicacionConductor!, destino!);
-
-    // Si la ruta no tiene puntos, retornamos
-    if (ruta.isEmpty) return;
 
     // Cargar el icono del marcador para destino o cliente
     final BitmapDescriptor destinoIcon = await BitmapDescriptor.fromAssetImage(
@@ -231,11 +225,11 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
           : 'assets/img/map_pin_blue.png', // Ruta de la imagen para destino o cliente
     );
 
-    // Cargar el icono del marcador para conductor
+    // Cargar el icono del marcador para conductor (si existe)
     final BitmapDescriptor conductorIcon =
         await BitmapDescriptor.fromAssetImage(
           ImageConfiguration(size: Size(50, 50)),
-          'assets/img/taxi_icon.png', // Ruta de la imagen para conductor
+          'assets/img/icon_taxi.png', // Ruta de la imagen para conductor
         );
 
     if (!mounted) return;
@@ -251,19 +245,16 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
             iconParam: conductorIcon,
           ), // Actualiza el icono del marcador del conductor
       };
-
-      // Añadimos las rutas al mapa usando polylines
       _polylines = {
         Polyline(
           polylineId: const PolylineId("ruta"),
-          color: const Color.fromARGB(255, 255, 251, 0), // Color de la ruta
-          width: 5, // Grosor de la ruta
-          points: ruta, // Los puntos de la ruta obtenidos de la API
+          color: const Color.fromARGB(255, 255, 251, 0),
+          width: 5,
+          points: ruta,
         ),
       };
     });
 
-    // Calcula el bounds para ajustar la vista del mapa
     final bounds = LatLngBounds(
       southwest: LatLng(
         [
@@ -290,10 +281,53 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
     _mapController.animateCamera(CameraUpdate.newLatLngBounds(bounds, 80));
   }
 
+  Future<List<LatLng>> obtenerRutaPorCalles(
+    LatLng origen,
+    LatLng destino,
+  ) async {
+    final url = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
+    );
+
+    try {
+      final response = await http
+          .get(
+            url,
+            headers: {
+              'User-Agent': 'FlutterApp/1.0',
+              'Accept': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['routes'].isNotEmpty) {
+          final coordinates = data['routes'][0]['geometry']['coordinates'];
+          return coordinates
+              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
+              .toList();
+        }
+      } else {
+        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
+      }
+    } on SocketException catch (e) {
+      debugPrint("No se pudo conectar con OSRM: $e");
+    } on TimeoutException {
+      debugPrint("Tiempo de espera agotado al conectar con OSRM");
+    } on http.ClientException catch (e) {
+      debugPrint("ClientException: $e");
+    } catch (e) {
+      debugPrint("Otro error: $e");
+    }
+
+    return [];
+  }
+
   void _actualizarProgreso() {
     if (_ubicacionConductor == null) return;
 
-    final destino = _faseDos ? _ubicacionDestino : _ubicacionInicial;
+    final destino = _faseDos ? _ubicacionDestino : _ubicacionCliente;
     final distanciaActual = Geolocator.distanceBetween(
       _ubicacionConductor!.latitude,
       _ubicacionConductor!.longitude,
@@ -304,13 +338,12 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
     _distanciaTotal ??= distanciaActual;
     double nuevoProgreso = 1.0 - (distanciaActual / (_distanciaTotal! + 1));
     nuevoProgreso = nuevoProgreso.clamp(0.0, 1.0);
+    _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
 
     if (!_notificado && !_faseDos && nuevoProgreso >= 0.95) {
       _notificado = true;
       _mostrarNotificacionLocal();
     }
-
-    _progresoActual += (nuevoProgreso - _progresoActual) * 0.2;
 
     if (!mounted) return;
     setState(() {
@@ -367,6 +400,7 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
                 zoom: 14,
               ),
               markers: _markers,
+              polylines: _polylines,
               onMapCreated: (controller) => _mapController = controller,
               myLocationEnabled: false,
               zoomControlsEnabled: false,
@@ -392,7 +426,7 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
                         child: Icon(Icons.person, size: screenWidth * 0.08),
                       ),
                       SizedBox(width: screenWidth * 0.04),
-                      Expanded(
+                      Expanded( 
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -522,46 +556,5 @@ class _ClienteRecogida1State extends State<ClienteRecogida1> {
     if (await Vibration.hasVibrator() ?? false) {
       Vibration.vibrate(duration: 800);
     }
-  }
-
-  Future<List<LatLng>> obtenerRutaPorCalles(
-    LatLng origen,
-    LatLng destino,
-  ) async {
-    final url = Uri.parse(
-      'https://router.project-osrm.org/route/v1/driving/${origen.longitude},${origen.latitude};${destino.longitude},${destino.latitude}?overview=full&geometries=geojson',
-    );
-
-    try {
-      final response = await http
-          .get(
-            url,
-            headers: {
-              'User-Agent': 'FlutterApp/1.0',
-              'Accept': 'application/json',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['routes'].isNotEmpty) {
-          final coordinates = data['routes'][0]['geometry']['coordinates'];
-          return coordinates
-              .map<LatLng>((coord) => LatLng(coord[1], coord[0]))
-              .toList();
-        }
-      } else {
-        debugPrint("Error en respuesta HTTP: ${response.statusCode}");
-      }
-    } on TimeoutException {
-      debugPrint("Tiempo de espera agotado al conectar con OSRM");
-    } on SocketException {
-      debugPrint("Error de red: no se pudo conectar con OSRM");
-    } catch (e) {
-      debugPrint("Error inesperado: $e");
-    }
-
-    return [];
   }
 }

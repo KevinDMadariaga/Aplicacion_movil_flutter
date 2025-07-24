@@ -11,6 +11,10 @@ import 'package:geocoding/geocoding.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/screens/conductor/resumen_conductor.dart';
+import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
+import 'package:geolocator_android/geolocator_android.dart';
+
+import 'package:url_launcher/url_launcher.dart';
 
 class ConductorRecogida extends StatefulWidget {
   final String solicitudId;
@@ -45,17 +49,20 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
   bool _isMoving = false; // Variable para controlar si el conductor se mueve
   late Timer _moveTimer; // Timer para controlar el movimiento
   StreamSubscription<DocumentSnapshot>? _conductorListener;
+  StreamSubscription<Position>? _positionStream;
 
   @override
   void initState() {
     super.initState();
     _cargarDatosDesdeSolicitud();
+    _iniciarRastreoUbicacion();
   }
 
   @override
   void dispose() {
     _simulacionTimer?.cancel();
     _conductorListener?.cancel();
+    _positionStream?.cancel();
     super.dispose();
   }
 
@@ -123,23 +130,57 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     }
   }
 
-  void _animarMovimientoConductor(LatLng nuevaPos) {
+  Future<void> _abrirGoogleMapsExternamente() async {
+    final origen = _ubicacionConductor;
+    final destino = _faseDos ? _ubicacionDestino : _ubicacionCliente;
+
+    if (origen == null || destino == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Ubicación no disponible")));
+      return;
+    }
+
+    final url = Uri.parse(
+      "https://www.google.com/maps/dir/?api=1"
+      "&origin=${origen.latitude},${origen.longitude}"
+      "&destination=${destino.latitude},${destino.longitude}"
+      "&travelmode=driving",
+    );
+
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No se pudo abrir Google Maps")),
+      );
+    }
+  }
+
+  void _animarMovimientoConductor(LatLng nuevaPos) async {
     if (_markerConductor == null) {
+      // Cargar la imagen como icono
+      final BitmapDescriptor customIcon = await BitmapDescriptor.fromAssetImage(
+        ImageConfiguration(size: Size(50, 50)), // Ajusta el tamaño aquí
+        'assets/img/taxi_icon.png', // Ruta de tu imagen
+      );
+
+      // Crear el marcador con la imagen personalizada
       _markerConductor = Marker(
         markerId: const MarkerId("conductor"),
         position: nuevaPos,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        icon: customIcon,
       );
       _markers.add(_markerConductor!);
     } else {
       final inicio = _markerConductor!.position;
       double t = 0.0;
-      Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      Timer.periodic(const Duration(milliseconds: 100), (timer) {
         if (!mounted) {
           timer.cancel();
           return;
         }
-        t += 0.05;
+        t += 0.02;
         if (t >= 1.0) {
           timer.cancel();
           t = 1.0;
@@ -165,17 +206,33 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     final destino = _faseDos ? _ubicacionDestino : _ubicacionCliente;
     final puntos = await obtenerRutaPorCalles(_ubicacionConductor!, destino!);
 
+    // Cargar el icono del marcador para destino o cliente
+    final BitmapDescriptor destinoIcon = await BitmapDescriptor.fromAssetImage(
+      ImageConfiguration(size: Size(50, 50)), // Ajusta el tamaño aquí
+      _faseDos
+          ? 'assets/img/map_pin_red.png'
+          : 'assets/img/map_pin_blue.png', // Ruta de la imagen para destino o cliente
+    );
+
+    // Cargar el icono del marcador para conductor (si existe)
+    final BitmapDescriptor conductorIcon =
+        await BitmapDescriptor.fromAssetImage(
+          ImageConfiguration(size: Size(50, 50)),
+          'assets/img/taxi_icon.png', // Ruta de la imagen para conductor
+        );
+
     if (!mounted) return;
     setState(() {
       _markers = {
         Marker(
           markerId: MarkerId(_faseDos ? "destino" : "cliente"),
           position: destino,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            _faseDos ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
-          ),
+          icon: destinoIcon, // Usamos la imagen personalizada
         ),
-        if (_markerConductor != null) _markerConductor!,
+        if (_markerConductor != null)
+          _markerConductor!.copyWith(
+            iconParam: conductorIcon,
+          ), // Actualiza el icono del marcador del conductor
       };
 
       _polylines = {
@@ -298,6 +355,47 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     });
 
     await _actualizarMapa();
+  }
+
+  Future<void> _iniciarRastreoUbicacion() async {
+    LocationPermission permiso = await Geolocator.checkPermission();
+    if (permiso == LocationPermission.denied ||
+        permiso == LocationPermission.deniedForever) {
+      permiso = await Geolocator.requestPermission();
+      if (permiso != LocationPermission.always &&
+          permiso != LocationPermission.whileInUse) {
+        debugPrint("Permiso de ubicación no concedido");
+        return;
+      }
+    }
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _positionStream =
+        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+          (Position position) {
+            if (!mounted || _conductorId == null) return;
+
+            final nuevaPos = LatLng(position.latitude, position.longitude);
+            FirebaseFirestore.instance
+                .collection('conductor')
+                .doc(_conductorId)
+                .update({
+                  'ubicacion': GeoPoint(nuevaPos.latitude, nuevaPos.longitude),
+                  'actualizado': FieldValue.serverTimestamp(),
+                });
+
+            _ubicacionConductor = nuevaPos;
+            _animarMovimientoConductor(nuevaPos);
+            _actualizarMapa();
+            _actualizarProgreso();
+          },
+        );
+
+    debugPrint("[ConductorRecogida] Rastreo activo incluso en segundo plano");
   }
 
   Future<void> _terminarViaje() async {
@@ -460,15 +558,23 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
                                   ? _terminarViaje
                                   : null,
                               isLoading: _terminandoViaje,
-                              width: screenWidth * 0.50,
+                              width: screenWidth * 0.42,
                               height: screenHeight * 0.06,
                               fontSize: fontSize,
-                              icon: Icon(
-                                Icons.flag,
-                                size: fontSize,
-                                color: Colors.white,
-                              ),
                             ),
+                          CustomButton(
+                            text: "Maps",
+                            onPressed: _abrirGoogleMapsExternamente,
+                            isLoading: false,
+                            width: screenWidth * 0.30,
+                            height: screenHeight * 0.06,
+                            fontSize: fontSize,
+                            icon: Icon(
+                              Icons.map_outlined,
+                              size: fontSize,
+                              color: Colors.white,
+                            ),
+                          ),
                         ],
                       ),
                     ],
