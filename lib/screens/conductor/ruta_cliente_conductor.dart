@@ -175,12 +175,12 @@ class _ConductorRecogidaState extends State<ConductorRecogida> {
     } else {
       final inicio = _markerConductor!.position;
       double t = 0.0;
-      Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      Timer.periodic(const Duration(milliseconds: 100), (timer) {
         if (!mounted) {
           timer.cancel();
           return;
         }
-        t += 0.05;
+        t += 0.02;
         if (t >= 1.0) {
           timer.cancel();
           t = 1.0;

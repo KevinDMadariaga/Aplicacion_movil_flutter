@@ -321,9 +321,7 @@ class _ResumenSolicitudState extends State<ResumenSolicitud> {
                                       BorderRadius.circular(12 * scale),
                                 ),
                               ),
-                              child: Text(_yaCalificada
-                                  ? "Volver al Mapa"
-                                  : "Calificar y Volver"),
+                              child: const Text("Calificar y volver"),
                             ),
                           ),
                           SizedBox(height: 30 * scale),

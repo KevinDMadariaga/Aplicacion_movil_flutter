@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:taxi_app/components/boton.dart';
 import 'package:taxi_app/components/colores.dart';
 import 'package:taxi_app/screens/cliente/mapa_cliente.dart';
-import 'package:taxi_app/screens/cliente/inicio sesion/registro_cliente.dart';
+import 'package:taxi_app/screens/cliente/inicio%20sesion/registro_cliente.dart';
 
 class LoginCliente extends StatefulWidget {
   const LoginCliente({super.key});
