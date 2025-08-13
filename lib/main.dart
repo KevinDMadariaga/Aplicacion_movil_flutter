@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_background/flutter_background.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:taxi_app/screens/login.dart'; // Asegúrate de tener el archivo correcto
+import 'package:taxi_app/screens/home.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -110,7 +110,7 @@ class MyApp extends StatelessWidget {
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home:
-          const LoadingScreen(), // Asegúrate de tener un loading screen antes de la pantalla de login
+          const Home(), // Asegúrate de tener un loading screen antes de la pantalla de login
     );
   }
 }

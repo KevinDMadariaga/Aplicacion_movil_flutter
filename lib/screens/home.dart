@@ -127,6 +127,22 @@ class Home extends StatelessWidget {
                     ],
                   ),
                 ),
+                // Firma / Marca de agua
+                Positioned(
+                  bottom: height * 0.02,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Text(
+                      "Desarrollado por Kevin Madariaga",
+                      style: TextStyle(
+                        fontSize: width * 0.035,
+                        color: Colors.grey.shade500,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             );
           },
