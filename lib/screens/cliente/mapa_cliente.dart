@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:taxi_app/screens/cliente/ruta_conductor_cliente.dart';
+import 'package:taxi_app/screens/cliente/ruta_prueba.dart';
 
 class MapaCliente extends StatefulWidget {
   const MapaCliente({super.key});

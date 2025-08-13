@@ -3,9 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geocoding/geocoding.dart';
 
-class HistorialConductor extends StatelessWidget {
+class HistorialConductor extends StatefulWidget {
   const HistorialConductor({super.key});
 
+  @override
+  _HistorialConductorState createState() => _HistorialConductorState();
+}
+
+class _HistorialConductorState extends State<HistorialConductor> {
   String formatoFechaHora(Timestamp timestamp) {
     final fecha = timestamp.toDate().toUtc().subtract(const Duration(hours: 5));
     return "${fecha.day.toString().padLeft(2, '0')}/"
@@ -94,7 +99,11 @@ class HistorialConductor extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              if (mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+            },
             child: Text(
               "Cerrar",
               style: TextStyle(

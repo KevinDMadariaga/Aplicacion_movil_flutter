@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 class MapaConductorController {
   final User conductor = FirebaseAuth.instance.currentUser!;
   StreamSubscription<Position>? _positionStream;
+  StreamSubscription<Position>? _subscription;
   StreamSubscription<QuerySnapshot>? _solicitudesSubscription;
   StreamSubscription<DocumentSnapshot>? _solicitudDocSubscription;
 
@@ -108,6 +109,7 @@ class MapaConductorController {
     }
   }
 
+  //direccion del cliente
   Future<String> obtenerDireccion(GeoPoint ubicacion) async {
     try {
       final placemarks = await placemarkFromCoordinates(
@@ -123,55 +125,51 @@ class MapaConductorController {
     }
   }
 
-  Future<void> iniciarSeguimientoUbicacion(Function(LatLng) onUpdate) async {
-    final permisos = await Geolocator.checkPermission();
-    if (permisos == LocationPermission.denied ||
-        permisos == LocationPermission.deniedForever) return;
+  /// Inicia el rastreo y guarda en Firestore
+  void iniciarRastreoUbicacion(
+    Function(LatLng) onUbicacion, {
+    required String collection,
+    String? docId,
+  }) async {
+    final permiso = await _verificarPermisos();
+    if (!permiso) return;
 
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
+    final settings = const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    );
 
-    _positionStream?.cancel();
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((pos) {
-      final nuevaUbicacion = LatLng(pos.latitude, pos.longitude);
-      currentPosition = nuevaUbicacion;
-      onUpdate(nuevaUbicacion);
+    _positionStream = Geolocator.getPositionStream(locationSettings: settings)
+        .listen((Position pos) {
+      final latLng = LatLng(pos.latitude, pos.longitude);
+      onUbicacion(latLng);
+      currentPosition = latLng;
 
-      if (_debeActualizarUbicacion(nuevaUbicacion)) {
-        _ultimaUbicacionEnviada = nuevaUbicacion;
+      final user = FirebaseAuth.instance.currentUser;
+      final String? id = docId ?? user?.uid;
 
-        FirebaseFirestore.instance
-            .collection('conductor')
-            .doc(conductor.uid)
-            .update({
+      if (id != null) {
+        FirebaseFirestore.instance.collection(collection).doc(id).set({
           'ubicacion': GeoPoint(pos.latitude, pos.longitude),
-          'ultima_actualizacion': DateTime.now(),
-        });
+          'actualizado': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
     });
   }
 
-  bool _debeActualizarUbicacion(LatLng nueva) {
-    if (_ultimaUbicacionEnviada == null) return true;
-
-    final distancia = Geolocator.distanceBetween(
-      _ultimaUbicacionEnviada!.latitude,
-      _ultimaUbicacionEnviada!.longitude,
-      nueva.latitude,
-      nueva.longitude,
-    );
-
-    return distancia > 4; // Solo actualiza si se movió más de 20 metros
+  /// Detiene el rastreo de ubicación.
+  void detenerRastreo() {
+    _positionStream?.cancel();
   }
 
-  void dispose() {
-    _positionStream?.cancel();
-    _solicitudesSubscription?.cancel();
-    _solicitudDocSubscription?.cancel();
+  /// Solicita y verifica los permisos de ubicación.
+  Future<bool> _verificarPermisos() async {
+    LocationPermission permiso = await Geolocator.checkPermission();
+    if (permiso == LocationPermission.denied ||
+        permiso == LocationPermission.deniedForever) {
+      permiso = await Geolocator.requestPermission();
+    }
+    return permiso == LocationPermission.always ||
+        permiso == LocationPermission.whileInUse;
   }
 }
